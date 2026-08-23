@@ -1,0 +1,19 @@
+            {activeUserDetailTab === 'matches' && (
+              <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                {userMatches.length === 0 ? (
+                  <p className="text-xs text-purple-400 text-center py-6">No tournament matches played yet.</p>
+                ) : (
+                  userMatches.map((m) => (
+                    <div key={m.id} className="p-3 rounded-xl bg-[#1A1538] border border-purple-800/40 text-xs flex justify-between items-center">
+                      <div>
+                        <p className="font-bold text-white">{m.title}</p>
+                        <p className="text-[10px] text-purple-300">{m.game} • {m.matchType} • Entry: ₹{m.entryFee}</p>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-900 text-amber-300">
+                        {m.status}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}

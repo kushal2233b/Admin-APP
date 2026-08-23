@@ -1,0 +1,219 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: Check if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: Safely retrieve user document data
+    function getUserData() {
+      let docRef = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(docRef) ? get(docRef).data : {};
+    }
+
+    // Helper: Check if signed-in user has Admin or Staff privileges
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.get('email', '') == 'kushaal.singhhh@gmail.com' ||
+        request.auth.token.get('email', '') == 'kushal2233b@gmail.com' ||
+        getUserData().get('role', '') in ['superadmin', 'admin', 'staff'] ||
+        getUserData().get('isAdmin', false) == true ||
+        exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/staffUsers/$(request.auth.uid)) ||
+        exists(/databases/$(database)/documents/staff_users/$(request.auth.uid))
+      );
+    }
+
+    // 1. Tournaments & Matches Collections
+    match /tournaments/{tournamentId} {
+      allow read: if true;
+      allow write: if isAdmin() || isSignedIn();
+    }
+
+    match /matches/{matchId} {
+      allow read: if true;
+      allow write: if isAdmin() || isSignedIn();
+    }
+
+    // 2. Match Rules & Categories
+    match /match_rules/{ruleId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /match_categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 3. User Management Collections
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    match /adminUsers/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /staffUsers/{staffId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /staff_users/{staffId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /admin_users/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 4. Financial & Wallet Collections
+    match /transactions/{txId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /walletTransactions/{txId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /deposits/{depId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /depositRequests/{depId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /deposit_requests/{depId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /withdrawals/{wdId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /withdrawRequests/{wdId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /withdraw_requests/{wdId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /wallets/{walletId} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == walletId);
+      allow write: if isAdmin();
+    }
+
+    // 5. App Announcements, Banners, Notifications
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAdmin() || (
+        isSignedIn() && 
+        resource.data.get('adminOnly', false) != true &&
+        resource.data.get('type', '') != 'admin_only' && (
+          !resource.data.keys().has('targetUserId') ||
+          resource.data.targetUserId == null ||
+          resource.data.targetUserId == '' ||
+          resource.data.targetUserId == request.auth.uid ||
+          resource.data.get('userId', '') == request.auth.uid ||
+          resource.data.get('userUid', '') == request.auth.uid
+        )
+      );
+      allow write: if isAdmin();
+    }
+
+    // 6. Coupons & Support Tickets
+    match /coupons/{couponId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /tickets/{ticketId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid));
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /supportTickets/{ticketId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid));
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /support_tickets/{ticketId} {
+      allow read: if isAdmin() || (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid || resource.data.uid == request.auth.uid));
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // 7. System Configurations & Settings
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /system/{systemId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 8. Leaderboards & Analytics Reports
+    match /leaderboard/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /leaderboards/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 9. Universal Catch-All Fallback Rule
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "WinX7 Admin Portal",
+  "description": "Esports Admin Web Portal for WinX7 with tournament management, user wallets, notifications, support, and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

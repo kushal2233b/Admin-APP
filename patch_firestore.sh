@@ -1,0 +1,2 @@
+sed -i 's/export async function updateUserWalletBalanceInFirestore(userId: string, newBalance: number): Promise<void> {/export async function updateUserWalletBalanceInFirestore(userId: string, newBalance: number, walletType: "main" | "winning" = "main"): Promise<void> {/' src/services/firestoreService.ts
+sed -i 's/await updateDoc(docRef, { walletBalance: newBalance });/await updateDoc(docRef, walletType === "winning" ? { unclaimedWinnings: newBalance } : { walletBalance: newBalance });/' src/services/firestoreService.ts

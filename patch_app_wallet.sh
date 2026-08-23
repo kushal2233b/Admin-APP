@@ -1,0 +1,4 @@
+sed -i 's/const handleUpdateUserWallet = async (userId: string, amount: number, isAddition: boolean, note: string) => {/const handleUpdateUserWallet = async (userId: string, amount: number, isAddition: boolean, note: string, walletType: "main" | "winning" = "main") => {/' src/App.tsx
+sed -i 's/const currentBal = u ? u.walletBalance : 0;/const currentBal = u ? (walletType === "winning" ? u.unclaimedWinnings : u.walletBalance) : 0;/' src/App.tsx
+sed -i 's/prev.map((usr) => (usr.id === userId ? { ...usr, walletBalance: newBal } : usr))/prev.map((usr) => (usr.id === userId ? (walletType === "winning" ? { ...usr, unclaimedWinnings: newBal } : { ...usr, walletBalance: newBal }) : usr))/' src/App.tsx
+sed -i 's/await updateUserWalletBalanceInFirestore(userId, newBal);/await updateUserWalletBalanceInFirestore(userId, newBal, walletType);/' src/App.tsx

@@ -1,0 +1,167 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "WinX7 esports player account profile",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "walletBalance": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["username", "email", "status"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Admin or staff team member account profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Tournament": {
+      "title": "Tournament",
+      "description": "Esports tournament match record",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "game": { "type": "string" },
+        "entryFee": { "type": "number" },
+        "prizePool": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["title", "game", "entryFee", "prizePool", "status"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Wallet deposit or withdrawal transaction",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "type", "amount", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "FCM Broadcast Push Notification",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["title", "message", "type"]
+    },
+    "Banner": {
+      "title": "Banner",
+      "description": "Homepage slider banner",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["title", "imageUrl", "isActive"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Player support desk ticket",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "subject": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["username", "subject", "status"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Global application configuration settings",
+      "type": "object",
+      "properties": {
+        "upiId": { "type": "string" },
+        "upiName": { "type": "string" },
+        "appVersion": { "type": "string" },
+        "maintenanceMode": { "type": "boolean" }
+      }
+    },
+    "GenericRecord": {
+      "title": "GenericRecord",
+      "description": "Generic system record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "createdAt": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "Player account documents" },
+    "/admin_users/{adminId}": { "schema": "AdminUser", "description": "Admin team accounts" },
+    "/adminUsers/{adminId}": { "schema": "AdminUser", "description": "Admin team accounts camelCase" },
+    "/admins/{adminId}": { "schema": "AdminUser", "description": "Admin accounts" },
+    "/staff_users/{staffId}": { "schema": "AdminUser", "description": "Staff member accounts" },
+    "/tournaments/{tournamentId}": { "schema": "Tournament", "description": "Match list documents" },
+    "/tournament_rooms/{roomId}": { "schema": "GenericRecord", "description": "Room ID and password details" },
+    "/match_results/{resultId}": { "schema": "GenericRecord", "description": "Completed match scores and kills" },
+    "/matchResults/{resultId}": { "schema": "GenericRecord", "description": "Completed match results" },
+    "/match_categories/{catId}": { "schema": "GenericRecord", "description": "Game categories" },
+    "/categories/{catId}": { "schema": "GenericRecord", "description": "Match categories" },
+    "/joined_matches/{joinId}": { "schema": "GenericRecord", "description": "Player match registrations" },
+    "/leaderboard/{rankId}": { "schema": "GenericRecord", "description": "Player tournament leaderboards" },
+    "/wallet/{walletId}": { "schema": "GenericRecord", "description": "Player wallet balance records" },
+    "/wallets/{walletId}": { "schema": "GenericRecord", "description": "Player wallet documents" },
+    "/wallet_transactions/{txId}": { "schema": "Transaction", "description": "Wallet history entries" },
+    "/transactions/{txId}": { "schema": "Transaction", "description": "Wallet deposit/withdrawal requests" },
+    "/deposits/{depositId}": { "schema": "Transaction", "description": "Deposit requests" },
+    "/deposit_requests/{reqId}": { "schema": "Transaction", "description": "Player deposit submissions" },
+    "/withdrawals/{wId}": { "schema": "Transaction", "description": "Withdrawal requests" },
+    "/withdrawal_requests/{wReqId}": { "schema": "Transaction", "description": "Player withdrawal submissions" },
+    "/payment_methods/{pId}": { "schema": "GenericRecord", "description": "Available payment gateways" },
+    "/payment_settings/{sId}": { "schema": "GenericRecord", "description": "Payment and gateway parameters" },
+    "/deposit_qr/{qrId}": { "schema": "GenericRecord", "description": "Admin deposit QR codes" },
+    "/qr_codes/{qrId}": { "schema": "GenericRecord", "description": "Deposit UPI QR codes" },
+    "/upi_settings/{upiId}": { "schema": "GenericRecord", "description": "UPI merchant details" },
+    "/redeem_codes/{codeId}": { "schema": "GenericRecord", "description": "Promo and bonus coupon codes" },
+    "/coupons/{couponId}": { "schema": "GenericRecord", "description": "Discount and bonus coupons" },
+    "/referral_settings/{refId}": { "schema": "GenericRecord", "description": "Referral program settings" },
+    "/referral_rewards/{rewardId}": { "schema": "GenericRecord", "description": "Referral bonus log" },
+    "/bonus_settings/{bonusId}": { "schema": "GenericRecord", "description": "Welcome and deposit bonus config" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "Broadcast notifications log" },
+    "/announcements/{annId}": { "schema": "Notification", "description": "App notice board announcements" },
+    "/banners/{bannerId}": { "schema": "Banner", "description": "Homepage promotional sliders" },
+    "/sliders/{sliderId}": { "schema": "Banner", "description": "Carousel slide banners" },
+    "/support_tickets/{ticketId}": { "schema": "SupportTicket", "description": "Customer support ticket threads" },
+    "/tickets/{ticketId}": { "schema": "SupportTicket", "description": "Support desk tickets" },
+    "/reports/{reportId}": { "schema": "GenericRecord", "description": "Player bug and player reports" },
+    "/config/{configId}": { "schema": "SystemSettings", "description": "System config settings" },
+    "/settings/{settingId}": { "schema": "SystemSettings", "description": "App settings global" },
+    "/app_settings/{sId}": { "schema": "SystemSettings", "description": "Application settings" },
+    "/admin_settings/{sId}": { "schema": "SystemSettings", "description": "Admin panel configurations" },
+    "/game_settings/{sId}": { "schema": "GenericRecord", "description": "Esports game title configs" },
+    "/maintenance/{mId}": { "schema": "GenericRecord", "description": "Maintenance mode flags" },
+    "/featured_matches/{mId}": { "schema": "Tournament", "description": "Promoted tournament matches" },
+    "/live_matches/{mId}": { "schema": "Tournament", "description": "Currently ongoing matches" },
+    "/completed_matches/{mId}": { "schema": "Tournament", "description": "Finished tournament archives" },
+    "/winners/{wId}": { "schema": "GenericRecord", "description": "Tournament winner highlights" },
+    "/prize_distribution/{pId}": { "schema": "GenericRecord", "description": "Prize pool payout breakdowns" },
+    "/prizes/{pId}": { "schema": "GenericRecord", "description": "Prize structures" },
+    "/wallet_history/{hId}": { "schema": "Transaction", "description": "Historical wallet log" },
+    "/user_statistics/{sId}": { "schema": "GenericRecord", "description": "Player kill and win metrics" },
+    "/login_logs/{lId}": { "schema": "GenericRecord", "description": "Admin and user sign in audit logs" },
+    "/audit_logs/{aId}": { "schema": "GenericRecord", "description": "System action audit log" },
+    "/images/{imgId}": { "schema": "GenericRecord", "description": "Uploaded image metadata" },
+    "/uploads/{uId}": { "schema": "GenericRecord", "description": "Uploaded payment screenshots" },
+    "/profile_pictures/{picId}": { "schema": "GenericRecord", "description": "User profile avatar images" },
+    "/avatars/{avId}": { "schema": "GenericRecord", "description": "Player avatar images" }
+  }
+}
