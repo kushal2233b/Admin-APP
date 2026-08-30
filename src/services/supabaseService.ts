@@ -17,6 +17,11 @@ import {
   PrizeDistributionItem,
   AvatarPreset,
   MatchStatus,
+  StaffMember,
+  StaffStatus,
+  ResultRequest,
+  ResultRequestStatus,
+  ResultRequestParticipant
 } from '../types';
 
 export const cleanUndefined = (obj: any): any => {
@@ -453,11 +458,52 @@ export function normalizeTournamentDoc(
       docData?.is_results_published ?? 
       (rawStatus === 'completed' || rawStatus === 'finished' || hasCompletedAt)
     );
+    const isCancelled = rawStatus === 'cancelled' || rawStatus === 'canceled';
+
+    const startTimeMs = new Date(matchTimeVal).getTime();
+    const nowMs = Date.now();
+    const thirtySecs = 30 * 1000;
+    const isTimeLive = !isNaN(startTimeMs) && (nowMs >= startTimeMs + thirtySecs);
+
     const normalizedStatus: MatchStatus = 
       (rawStatus === 'completed' || rawStatus === 'finished' || isResultsPublished || hasCompletedAt) ? 'completed'
-      : (rawStatus === 'live' || rawStatus === 'in_progress') ? 'live'
-      : (rawStatus === 'cancelled' || rawStatus === 'canceled') ? 'cancelled'
+      : isCancelled ? 'cancelled'
+      : (rawStatus === 'live' || rawStatus === 'in_progress' || isTimeLive) ? 'live'
       : 'upcoming';
+
+    // Authoritative source of truth: direct public.tournaments columns (requires_access_code, access_code)
+    const hasExplicitRequiresCol = docData?.requires_access_code !== undefined && docData?.requires_access_code !== null;
+    let rawRequiresAccessCode = hasExplicitRequiresCol
+      ? Boolean(docData.requires_access_code)
+      : Boolean(
+          docData?.requiresAccessCode ??
+          docData?.require_access_code ??
+          docData?.requireAccessCode ??
+          docData?.is_private ??
+          docData?.isPrivate ??
+          false
+        );
+
+    let rawAccessCode = (docData?.access_code !== undefined && docData?.access_code !== null)
+      ? String(docData.access_code).trim()
+      : (docData?.accessCode ? String(docData.accessCode).trim() : '');
+
+    // Backward compatibility fallback: ONLY if direct columns were undefined
+    if (!hasExplicitRequiresCol && !rawAccessCode && docData?.winner_note) {
+      try {
+        const meta = typeof docData.winner_note === 'string' ? JSON.parse(docData.winner_note) : docData.winner_note;
+        if (meta && typeof meta === 'object') {
+          if (meta.access_code) {
+            rawAccessCode = String(meta.access_code).trim();
+          }
+          if (meta.requires_access_code !== undefined) {
+            rawRequiresAccessCode = Boolean(meta.requires_access_code);
+          }
+        }
+      } catch {}
+    }
+
+    const finalAccessCode = rawRequiresAccessCode ? rawAccessCode : '';
 
     return {
       id: id || docData?.id || `tournament-${Date.now()}`,
@@ -495,8 +541,14 @@ export function normalizeTournamentDoc(
       formattedTime: dtInfo.formattedTime,
       roomId: docData?.room_id || docData?.roomId || '',
       roomPassword: docData?.room_password || docData?.roomPassword || '',
-      accessCode: docData?.access_code || docData?.accessCode || '',
-      access_code: docData?.access_code || docData?.accessCode || '',
+      accessCode: finalAccessCode,
+      access_code: finalAccessCode,
+      requireAccessCode: rawRequiresAccessCode,
+      requiresAccessCode: rawRequiresAccessCode,
+      requires_access_code: rawRequiresAccessCode,
+      require_access_code: rawRequiresAccessCode,
+      isPrivate: rawRequiresAccessCode,
+      is_private: rawRequiresAccessCode,
       isRoomReleased: Boolean(docData?.is_room_released ?? docData?.isRoomReleased ?? docData?.room_details_visible ?? docData?.roomDetailsVisible ?? false),
       roomDetailsVisible: Boolean(docData?.room_details_visible ?? docData?.roomDetailsVisible ?? docData?.is_room_released ?? docData?.isRoomReleased ?? false),
       isRoomCredentialsVisible: Boolean(docData?.room_details_visible ?? docData?.roomDetailsVisible ?? false),
@@ -511,6 +563,125 @@ export function normalizeTournamentDoc(
       prizeDistribution: parsedPrizeDistribution,
       prize_distribution: parsedPrizeDistribution,
     };
+}
+
+export function isUserJoinedMatch(match: Tournament | any, currentUserId?: string): boolean {
+  if (!match || !currentUserId) return false;
+  const participants = Array.isArray(match.participants) ? match.participants : [];
+  return participants.some((p: any) => {
+    if (!p) return false;
+    if (typeof p === 'string') return p === currentUserId;
+    return (
+      p.userId === currentUserId ||
+      p.user_id === currentUserId ||
+      p.id === currentUserId ||
+      p.uid === currentUserId ||
+      p.playerId === currentUserId
+    );
+  });
+}
+
+export function isMatchJoinOpen(match: Tournament | any): boolean {
+  if (!match) return false;
+  const rawStatus = String(match.status || '').toLowerCase();
+  if (
+    rawStatus === 'cancelled' ||
+    rawStatus === 'canceled' ||
+    rawStatus === 'completed' ||
+    rawStatus === 'finished' ||
+    match.results_published
+  ) {
+    return false;
+  }
+  const matchTimeStr = match.startTime || match.match_time || match.matchTime || match.schedule || match.matchSchedule || match.start_time;
+  if (!matchTimeStr) return true;
+  const startTimeMs = new Date(matchTimeStr).getTime();
+  if (isNaN(startTimeMs)) return true;
+  const nowMs = Date.now();
+  // Join is available before scheduled start time and within the 30-second grace period (startTime <= now < startTime + 30s)
+  return nowMs < startTimeMs + 30000;
+}
+
+export function isMatchExpiredForUserNormalList(match: Tournament | any, currentUserId?: string): boolean {
+  if (!match) return false;
+  const matchTimeStr = match.startTime || match.match_time || match.matchTime || match.schedule || match.matchSchedule || match.start_time;
+  if (!matchTimeStr) return false;
+  const startTimeMs = new Date(matchTimeStr).getTime();
+  if (isNaN(startTimeMs)) return false;
+  const nowMs = Date.now();
+  // At scheduled_time + 30 seconds:
+  // - unjoined users lose the match completely from normal Matches list
+  // - joined users are hidden from normal Matches list and access it via Live Matches section
+  return nowMs >= startTimeMs + 30000;
+}
+
+export function isMatchVisibleInUserLiveList(match: Tournament | any, currentUserId?: string): boolean {
+  if (!match || !currentUserId) return false;
+  const rawStatus = String(match.status || '').toLowerCase();
+  const isCompleted = rawStatus === 'finished' || rawStatus === 'completed' || match.results_published === true || Boolean(match.completedAt || match.completed_at);
+  const isCancelled = rawStatus === 'cancelled' || rawStatus === 'canceled';
+  if (isCompleted || isCancelled) return false;
+
+  const hasJoined = isUserJoinedMatch(match, currentUserId);
+  if (!hasJoined) return false;
+
+  const matchTimeStr = match.startTime || match.match_time || match.matchTime || match.schedule || match.matchSchedule || match.start_time;
+  if (!matchTimeStr) return Boolean(match.isRoomReleased || rawStatus === 'live');
+  const startTimeMs = new Date(matchTimeStr).getTime();
+  if (isNaN(startTimeMs)) return Boolean(match.isRoomReleased || rawStatus === 'live');
+
+  const nowMs = Date.now();
+  return nowMs >= startTimeMs || match.isRoomReleased || rawStatus === 'live';
+}
+
+export function filterTournamentsForUserNormalList(tournaments: Tournament[] | any[], currentUserId?: string): Tournament[] {
+  if (!Array.isArray(tournaments)) return [];
+  const nowMs = Date.now();
+
+  return tournaments.filter((t) => {
+    if (!t) return false;
+    const tStatus = (t.status || '').toLowerCase();
+    const isCompleted = tStatus === 'finished' || tStatus === 'completed' || t.results_published === true || Boolean(t.completedAt || t.completed_at);
+    const isCancelled = tStatus === 'cancelled' || tStatus === 'canceled';
+
+    // Finished or cancelled matches do not appear in normal open matches list
+    if (isCompleted || isCancelled) return false;
+
+    // Check scheduled time with the strict 30-second grace window
+    const matchTimeStr = t.startTime || t.match_time || t.matchTime || t.schedule || t.matchSchedule || t.start_time;
+    if (matchTimeStr) {
+      const startTimeMs = new Date(matchTimeStr).getTime();
+      if (!isNaN(startTimeMs)) {
+        // IF current_time >= scheduled_time + 30 seconds:
+        // - unjoined users: completely hide from normal Matches list
+        // - joined users: hide from normal Matches list (shown in Live Matches section)
+        if (nowMs >= startTimeMs + 30000) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  });
+}
+
+export function filterTournamentsForUserLiveList(tournaments: Tournament[] | any[], currentUserId?: string): Tournament[] {
+  if (!Array.isArray(tournaments) || !currentUserId) return [];
+  return tournaments.filter((t) => isMatchVisibleInUserLiveList(t, currentUserId));
+}
+
+export function filterTournamentsForUserCompletedList(tournaments: Tournament[] | any[]): Tournament[] {
+  if (!Array.isArray(tournaments)) return [];
+  return tournaments.filter((t) => {
+    if (!t) return false;
+    const tStatus = (t.status || '').toLowerCase();
+    return tStatus === 'finished' || tStatus === 'completed' || t.results_published === true || Boolean(t.completedAt || t.completed_at);
+  });
+}
+
+export function filterTournamentsForAdmin(tournaments: Tournament[] | any[]): Tournament[] {
+  if (!Array.isArray(tournaments)) return [];
+  return tournaments;
 }
 
 // String extraction helper to prevent 'null', 'undefined', or 'N/A' from being treated as valid strings
@@ -1092,7 +1263,217 @@ export async function ensureUserProfileExists(user: any): Promise<AppUser> {
   return normalizeUserDoc(initialPayload, userId);
 }
 
-export function normalizeTransactionDoc(docData: any, id: string = docData?.id || ''): WalletTransaction {
+/**
+ * Authoritative Player Identity Resolver across the entire Admin & User App
+ * Resolves user UUID/object against profiles/users and extracts clean username, IGN, Game UID, and email
+ */
+export function resolveUserDisplayName(
+  input: any,
+  users: AppUser[] = []
+): {
+  username: string;
+  inGameName: string;
+  inGameId: string;
+  email: string;
+  phone: string;
+  userId: string;
+  matchedUser: AppUser | null;
+} {
+  if (!input) {
+    return {
+      username: 'User',
+      inGameName: 'N/A',
+      inGameId: 'N/A',
+      email: 'N/A',
+      phone: 'N/A',
+      userId: 'N/A',
+      matchedUser: null
+    };
+  }
+
+  let parsed: any = input;
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        parsed = input;
+      }
+    }
+  }
+
+  // If input is a raw primitive string or number (e.g. user UUID, email, or username)
+  if (typeof parsed === 'string' || typeof parsed === 'number') {
+    const str = String(parsed).trim();
+    const strLower = str.toLowerCase();
+
+    const matchedUser = (users || []).find((u) => {
+      if (!u) return false;
+      const uId = (u.id || '').toLowerCase().trim();
+      const uUid = (u.uid || '').toLowerCase().trim();
+      const uEmail = (u.email || '').toLowerCase().trim();
+      const uInGameId = (u.inGameId || '').toLowerCase().trim();
+      const uInGameName = (u.inGameName || '').toLowerCase().trim();
+      const uUsername = (u.username || '').toLowerCase().trim();
+
+      return (
+        (uId && strLower === uId) ||
+        (uUid && strLower === uUid) ||
+        (uEmail && strLower === uEmail) ||
+        (uInGameId && strLower === uInGameId) ||
+        (uInGameName && strLower === uInGameName) ||
+        (uUsername && strLower === uUsername)
+      );
+    });
+
+    if (matchedUser) {
+      const bestUsername =
+        (matchedUser.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+        (matchedUser.inGameName && matchedUser.inGameName !== 'Player' && matchedUser.inGameName !== 'User' && matchedUser.inGameName !== 'N/A' ? matchedUser.inGameName : '') ||
+        (matchedUser.displayName && matchedUser.displayName !== 'Player' && matchedUser.displayName !== 'User' ? matchedUser.displayName : '') ||
+        (matchedUser.email ? matchedUser.email.split('@')[0] : '') ||
+        'User';
+
+      const bestIgn =
+        (matchedUser.inGameName && matchedUser.inGameName !== 'N/A' && matchedUser.inGameName !== 'Player' ? matchedUser.inGameName : '') ||
+        (matchedUser.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+        bestUsername ||
+        'N/A';
+
+      const bestUid =
+        (matchedUser.inGameId && matchedUser.inGameId !== 'N/A' ? matchedUser.inGameId : '') ||
+        (matchedUser.uid && matchedUser.uid !== 'N/A' ? matchedUser.uid : '') ||
+        (matchedUser.id && matchedUser.id !== 'N/A' ? matchedUser.id : '') ||
+        'N/A';
+
+      return {
+        username: bestUsername,
+        inGameName: bestIgn,
+        inGameId: bestUid,
+        email: matchedUser.email || 'N/A',
+        phone: matchedUser.phone || 'N/A',
+        userId: matchedUser.uid || matchedUser.id || str,
+        matchedUser
+      };
+    }
+
+    const isEmail = str.includes('@');
+    return {
+      username: isEmail ? str.split('@')[0] : (str.length > 25 ? `User (${str.slice(0, 6)})` : (str || 'User')),
+      inGameName: !isEmail ? str : 'N/A',
+      inGameId: !isEmail ? str : 'N/A',
+      email: isEmail ? str : 'N/A',
+      phone: 'N/A',
+      userId: !isEmail ? str : 'N/A',
+      matchedUser: null
+    };
+  }
+
+  // Object input extraction
+  const pUserId = (parsed.userId || parsed.user_id || parsed.userUid || parsed.user_uid || parsed.uid || parsed.id || parsed.playerId || parsed.player_id || parsed.account_id || parsed.accountId || '').toString().trim();
+  const pEmail = (parsed.email || parsed.userEmail || parsed.user_email || parsed.mail || '').toString().trim();
+  const pPhone = (parsed.phone || parsed.userPhone || parsed.user_phone || parsed.mobile || '').toString().trim();
+  const pUsername = (parsed.username || parsed.user_name || parsed.displayName || parsed.display_name || parsed.name || parsed.fullName || parsed.full_name || parsed.playerName || parsed.player_name || '').toString().trim();
+  const pInGameName = (
+    parsed.inGameName ||
+    parsed.in_game_name ||
+    parsed.ign ||
+    parsed.free_fire_ign ||
+    parsed.freeFireName ||
+    parsed.ff_ign ||
+    parsed.ff_name ||
+    parsed.game_name ||
+    parsed.gameName ||
+    ''
+  ).toString().trim();
+  const pInGameId = (
+    parsed.inGameId ||
+    parsed.in_game_id ||
+    parsed.free_fire_uid ||
+    parsed.ff_uid ||
+    parsed.ff_id ||
+    parsed.game_uid ||
+    parsed.gameUid ||
+    parsed.game_id ||
+    parsed.gameId ||
+    parsed.ign_id ||
+    parsed.ignId ||
+    ''
+  ).toString().trim();
+
+  // Find matching user in users list
+  const matchedUser = (users || []).find((u) => {
+    if (!u) return false;
+    const uUid = (u.uid || u.id || '').toString().toLowerCase().trim();
+    if (pUserId && uUid && pUserId.toLowerCase() === uUid) return true;
+
+    const uEmail = (u.email || '').toString().toLowerCase().trim();
+    if (pEmail && uEmail && pEmail.toLowerCase() === uEmail) return true;
+
+    const uPhone = (u.phone || '').toString().trim();
+    if (pPhone && uPhone && pPhone === uPhone) return true;
+
+    const uInGameId = (u.inGameId || (u as any).ffUid || (u as any).ignId || '').toString().toLowerCase().trim();
+    if (pInGameId && uInGameId && pInGameId.toLowerCase() === uInGameId) return true;
+
+    const uUsername = (u.username || (u as any).displayName || '').toString().toLowerCase().trim();
+    if (pUsername && uUsername && pUsername.toLowerCase() === uUsername) return true;
+
+    const uInGameName = (u.inGameName || (u as any).ign || '').toString().toLowerCase().trim();
+    if (pInGameName && uInGameName && pInGameName.toLowerCase() === uInGameName) return true;
+
+    return false;
+  });
+
+  const bestUsername =
+    (matchedUser?.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+    (matchedUser?.inGameName && matchedUser.inGameName !== 'Player' && matchedUser.inGameName !== 'User' && matchedUser.inGameName !== 'N/A' ? matchedUser.inGameName : '') ||
+    (matchedUser?.displayName && matchedUser.displayName !== 'Player' && matchedUser.displayName !== 'User' ? matchedUser.displayName : '') ||
+    (pUsername && pUsername !== 'Player' && pUsername !== 'User' ? pUsername : '') ||
+    (pInGameName && pInGameName !== 'Player' && pInGameName !== 'User' && pInGameName !== 'N/A' ? pInGameName : '') ||
+    (matchedUser?.email ? matchedUser.email.split('@')[0] : '') ||
+    (pEmail ? pEmail.split('@')[0] : '') ||
+    (matchedUser?.phone ? matchedUser.phone : '') ||
+    (pPhone ? pPhone : '') ||
+    'User';
+
+  const bestIgn =
+    (matchedUser?.inGameName && matchedUser.inGameName !== 'N/A' && matchedUser.inGameName !== 'Player' ? matchedUser.inGameName : '') ||
+    (pInGameName && pInGameName !== 'N/A' && pInGameName !== 'Player' ? pInGameName : '') ||
+    (matchedUser?.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+    (pUsername && pUsername !== 'Player' && pUsername !== 'User' ? pUsername : '') ||
+    bestUsername ||
+    'N/A';
+
+  const bestUid =
+    (matchedUser?.inGameId && matchedUser.inGameId !== 'N/A' ? matchedUser.inGameId : '') ||
+    (pInGameId && pInGameId !== 'N/A' ? pInGameId : '') ||
+    (matchedUser?.uid && matchedUser.uid !== 'N/A' ? matchedUser.uid : '') ||
+    (matchedUser?.id && matchedUser.id !== 'N/A' ? matchedUser.id : '') ||
+    (pUserId && pUserId !== 'N/A' ? pUserId : '') ||
+    'N/A';
+
+  const finalEmail = matchedUser?.email || pEmail || 'N/A';
+  const finalPhone = matchedUser?.phone || pPhone || 'N/A';
+  const finalUserId = matchedUser?.uid || matchedUser?.id || pUserId || 'N/A';
+
+  return {
+    username: bestUsername,
+    inGameName: bestIgn,
+    inGameId: bestUid,
+    email: finalEmail,
+    phone: finalPhone,
+    userId: finalUserId,
+    matchedUser: matchedUser || null
+  };
+}
+
+export function normalizeTransactionDoc(
+  docData: any,
+  id: string = docData?.id || '',
+  profile?: any
+): WalletTransaction {
   const desc = docData?.description || '';
   const refId = docData?.reference_id || docData?.referenceId || '';
   
@@ -1132,10 +1513,48 @@ export function normalizeTransactionDoc(docData: any, id: string = docData?.id |
       : `${SUPABASE_URL}/storage/v1/object/public/deposits/${rawProofUrl}`
     : undefined;
 
+  // Resolve authoritative username from profile or docData
+  let resolvedUsername = '';
+  if (profile) {
+    resolvedUsername =
+      (profile.username && profile.username !== 'User' && profile.username !== 'Player' ? profile.username : '') ||
+      (profile.in_game_name && profile.in_game_name !== 'User' && profile.in_game_name !== 'Player' && profile.in_game_name !== 'N/A' ? profile.in_game_name : '') ||
+      (profile.ign && profile.ign !== 'User' && profile.ign !== 'Player' && profile.ign !== 'N/A' ? profile.ign : '') ||
+      (profile.display_name && profile.display_name !== 'User' && profile.display_name !== 'Player' ? profile.display_name : '') ||
+      (profile.displayName && profile.displayName !== 'User' && profile.displayName !== 'Player' ? profile.displayName : '') ||
+      (profile.name && profile.name !== 'User' && profile.name !== 'Player' ? profile.name : '') ||
+      (profile.full_name && profile.full_name !== 'User' && profile.full_name !== 'Player' ? profile.full_name : '') ||
+      (profile.player_name && profile.player_name !== 'User' && profile.player_name !== 'Player' ? profile.player_name : '') ||
+      (profile.user_name && profile.user_name !== 'User' && profile.user_name !== 'Player' ? profile.user_name : '') ||
+      (profile.email ? profile.email.split('@')[0] : '') ||
+      (profile.phone ? profile.phone : '');
+  }
+
+  if (!resolvedUsername || resolvedUsername === 'User' || resolvedUsername === 'Player') {
+    resolvedUsername =
+      (docData?.username && docData.username !== 'User' && docData.username !== 'Player' ? docData.username : '') ||
+      (docData?.user_name && docData.user_name !== 'User' && docData.user_name !== 'Player' ? docData.user_name : '') ||
+      (docData?.in_game_name && docData.in_game_name !== 'User' && docData.in_game_name !== 'Player' && docData.in_game_name !== 'N/A' ? docData.in_game_name : '') ||
+      (docData?.inGameName && docData.inGameName !== 'User' && docData.inGameName !== 'Player' && docData.inGameName !== 'N/A' ? docData.inGameName : '') ||
+      (docData?.ign && docData.ign !== 'User' && docData.ign !== 'Player' && docData.ign !== 'N/A' ? docData.ign : '') ||
+      (docData?.display_name && docData.display_name !== 'User' && docData.display_name !== 'Player' ? docData.display_name : '') ||
+      (docData?.displayName && docData.displayName !== 'User' && docData.displayName !== 'Player' ? docData.displayName : '') ||
+      (docData?.name && docData.name !== 'User' && docData.name !== 'Player' ? docData.name : '') ||
+      (docData?.full_name && docData.full_name !== 'User' && docData.full_name !== 'Player' ? docData.full_name : '') ||
+      (docData?.player_name && docData.player_name !== 'User' && docData.player_name !== 'Player' ? docData.player_name : '') ||
+      (docData?.user_email ? docData.user_email.split('@')[0] : '') ||
+      (docData?.email ? docData.email.split('@')[0] : '') ||
+      (docData?.userEmail ? docData.userEmail.split('@')[0] : '') ||
+      (docData?.userPhone ? docData.userPhone : '') ||
+      (docData?.phone ? docData.phone : '') ||
+      resolvedUsername ||
+      'User';
+  }
+
   return {
     id: id || docData?.id || `tx-${Date.now()}`,
-    userId: docData?.user_id || docData?.userId || '',
-    username: docData?.username || 'User',
+    userId: docData?.user_id || docData?.userId || profile?.id || '',
+    username: resolvedUsername,
     type: rawType as any,
     amount: Number(docData?.amount || 0),
     status: statusVal as any,
@@ -1197,24 +1616,45 @@ export function normalizeCategoryDoc(docData: any, id: string = docData?.id || '
   };
 }
 
-export function normalizeCouponDoc(docData: any, id: string = docData?.id || ''): Coupon {
+export function normalizeCouponDoc(docData: any, id: string = docData?.id || docData?.coupon_id || ''): Coupon {
+  const couponId = String(id || docData?.id || docData?.coupon_id || docData?.p_coupon_id || `cpn-${Date.now()}`);
+  const code = String(docData?.code || docData?.p_code || docData?.id || '').trim().toUpperCase();
+  const description = docData?.description || docData?.p_description || '';
+  const rewardAmount = Number(docData?.reward_amount ?? docData?.rewardAmount ?? docData?.p_reward_amount ?? docData?.discount_value ?? docData?.discountValue ?? 0);
+  const minDepositAmount = Number(docData?.min_deposit_amount ?? docData?.minDepositAmount ?? docData?.p_min_deposit_amount ?? docData?.min_deposit ?? docData?.minDeposit ?? 0);
+
+  const rawMaxUses = docData?.max_uses ?? docData?.maxUses ?? docData?.p_max_uses ?? docData?.usage_limit ?? docData?.usageLimit;
+  const maxUses = rawMaxUses !== undefined && rawMaxUses !== null && !isNaN(Number(rawMaxUses)) && Number(rawMaxUses) > 0 ? Number(rawMaxUses) : null;
+
+  const usedCount = Number(docData?.used_count ?? docData?.usedCount ?? docData?.p_used_count ?? docData?.times_used ?? docData?.timesUsed ?? 0);
+
+  const startsAt = docData?.starts_at || docData?.startsAt || docData?.p_starts_at || docData?.created_at || docData?.createdAt || new Date().toISOString();
+  const expiresAt = docData?.expires_at || docData?.expiresAt || docData?.p_expires_at || docData?.expiry_date || docData?.expiryDate || docData?.valid_until || docData?.validUntil || null;
+
+  const isActive = Boolean(docData?.is_active ?? docData?.isActive ?? docData?.p_is_active ?? true);
+  const createdAt = docData?.created_at || docData?.createdAt || new Date().toISOString();
+
   return {
-    id: id || docData?.id || `coupon-${Date.now()}`,
-    code: docData?.code || docData?.id || '',
-    discountType: docData?.discount_type || docData?.discountType || 'percentage',
-    discountValue: Number(docData?.discount_value ?? docData?.discountValue ?? 0),
-    minDeposit: Number(docData?.min_deposit ?? docData?.minDeposit ?? docData?.min_deposit_amount ?? docData?.minDepositAmount ?? 0),
-    minDepositAmount: Number(docData?.min_deposit_amount ?? docData?.minDepositAmount ?? docData?.min_deposit ?? docData?.minDeposit ?? 0),
-    maxDiscount: docData?.max_discount ? Number(docData.max_discount) : docData?.max_discount_amount ? Number(docData.max_discount_amount) : undefined,
-    maxDiscountAmount: docData?.max_discount_amount ? Number(docData.max_discount_amount) : docData?.max_discount ? Number(docData.max_discount) : undefined,
-    validUntil: docData?.valid_until || docData?.validUntil || docData?.expiry_date || docData?.expiryDate || new Date(Date.now() + 86400000 * 30).toISOString(),
-    expiryDate: docData?.expiry_date || docData?.expiryDate || docData?.valid_until || docData?.validUntil || new Date(Date.now() + 86400000 * 30).toISOString(),
-    isActive: Boolean(docData?.is_active ?? docData?.isActive ?? true),
-    usageLimit: docData?.usage_limit ? Number(docData.usage_limit) : docData?.usageLimit ? Number(docData.usageLimit) : 100,
-    timesUsed: Number(docData?.times_used ?? docData?.timesUsed ?? docData?.used_count ?? docData?.usedCount ?? 0),
-    usedCount: Number(docData?.used_count ?? docData?.usedCount ?? docData?.times_used ?? docData?.timesUsed ?? 0),
-    createdAt: docData?.created_at || docData?.createdAt || new Date().toISOString(),
-    description: docData?.description || '',
+    id: couponId,
+    code,
+    description,
+    rewardAmount,
+    minDepositAmount,
+    maxUses,
+    usedCount,
+    startsAt,
+    expiresAt,
+    isActive,
+    createdAt,
+
+    // Aliases for full backwards compatibility
+    discountType: 'fixed',
+    discountValue: rewardAmount,
+    minDeposit: minDepositAmount,
+    usageLimit: maxUses,
+    timesUsed: usedCount,
+    expiryDate: expiresAt ? String(expiresAt) : undefined,
+    validUntil: expiresAt ? String(expiresAt) : undefined
   };
 }
 
@@ -1525,7 +1965,11 @@ export async function saveTxOverrideInSupabase(
   }
 }
 
-export function processAndEnrichTransactions(data: any[], overrides: Record<string, any>): WalletTransaction[] {
+export function processAndEnrichTransactions(
+  data: any[],
+  overrides: Record<string, any>,
+  profileMap?: Map<string, any>
+): WalletTransaction[] {
   const refundedRefIds = new Set<string>();
   (data || []).forEach((item: any) => {
     if (item.type === 'refund' && item.reference_id) {
@@ -1534,7 +1978,9 @@ export function processAndEnrichTransactions(data: any[], overrides: Record<stri
   });
 
   return (data || []).map((item: any) => {
-    const norm = normalizeTransactionDoc(item, item.id);
+    const rawUserId = item?.user_id || item?.userId || item?.account_id;
+    const prof = (rawUserId && profileMap) ? profileMap.get(rawUserId) : null;
+    const norm = normalizeTransactionDoc(item, item.id, prof);
     const ov =
       overrides[item.id] ||
       (item.reference_id ? overrides[item.reference_id] : null) ||
@@ -1565,9 +2011,10 @@ export function processAndEnrichTransactions(data: any[], overrides: Record<stri
 // Core Realtime / Polling Subscription Engine
 export async function fetchTransactionsFromSupabase(): Promise<WalletTransaction[]> {
   await ensureSupabaseAuthSession();
-  const [{ data, error }, overrides] = await Promise.all([
+  const [{ data, error }, overrides, profsRes] = await Promise.all([
     supabase.from('wallet_transactions').select('*').order('created_at', { ascending: false }),
-    getTxOverridesFromSupabase()
+    getTxOverridesFromSupabase(),
+    supabase.from('profiles').select('*')
   ]);
 
   if (error) {
@@ -1575,7 +2022,12 @@ export async function fetchTransactionsFromSupabase(): Promise<WalletTransaction
     throw new Error(`Database error fetching transactions: ${error.message}`);
   }
 
-  return processAndEnrichTransactions(data || [], overrides);
+  const profileMap = new Map<string, any>();
+  for (const p of profsRes.data || []) {
+    if (p && p.id) profileMap.set(p.id, p);
+  }
+
+  return processAndEnrichTransactions(data || [], overrides, profileMap);
 }
 
 export function subscribeCollection<T = any>(
@@ -1641,9 +2093,10 @@ export function subscribeCollection<T = any>(
       if (tableName === 'wallet_transactions' || collectionName === 'transactions' || collectionName === 'walletTransactions' || collectionName === 'deposit_requests' || collectionName === 'deposits') {
         try {
           await ensureSupabaseAuthSession();
-          const [{ data, error }, overrides] = await Promise.all([
+          const [{ data, error }, overrides, profsRes] = await Promise.all([
             supabase.from('wallet_transactions').select('*').order('created_at', { ascending: false }),
-            getTxOverridesFromSupabase()
+            getTxOverridesFromSupabase(),
+            supabase.from('profiles').select('*')
           ]);
 
           if (error) {
@@ -1652,7 +2105,11 @@ export function subscribeCollection<T = any>(
           }
 
           if (data) {
-            const dbTxData = processAndEnrichTransactions(data, overrides);
+            const profileMap = new Map<string, any>();
+            for (const p of profsRes.data || []) {
+              if (p && p.id) profileMap.set(p.id, p);
+            }
+            const dbTxData = processAndEnrichTransactions(data, overrides, profileMap);
             if (isSubscribed) callback(dbTxData as any);
           }
         } catch (err: any) {
@@ -1736,22 +2193,13 @@ export function subscribeCollection<T = any>(
         }
 
         if (collectionName === 'coupons') {
-          const getItemVal = (item: any) => {
-            const raw = item.value ?? item.data ?? item.content ?? item.config ?? item.payload ?? item.json_data;
-            if (raw === undefined || raw === null) return item;
-            if (typeof raw === 'string') {
-              try { return JSON.parse(raw); } catch { return raw; }
-            }
-            return raw;
-          };
-
-          const coupons = (data || [])
-            .filter((item: any) => item.id?.startsWith('coupon_') || item.key?.startsWith('coupon_'))
-            .map((item: any) => {
-              const val = getItemVal(item);
-              return normalizeCouponDoc({ id: item.id, ...val }, item.id);
+          fetchCouponsFromSupabase()
+            .then((coupons) => {
+              callback(coupons as any);
+            })
+            .catch((err) => {
+              console.warn('Coupon subscription fetch failed:', err?.message || err);
             });
-          callback(coupons as any);
           return;
         }
 
@@ -2268,10 +2716,59 @@ export async function createTournamentInSupabase(
     is_free: Number(tournament.entryFee || 0) === 0,
     is_featured: Boolean(tournament.isFeatured),
     is_recommended: true,
-    is_private: false,
+    is_private: Boolean(
+      tournament.requireAccessCode ??
+      tournament.requiresAccessCode ??
+      tournament.requires_access_code ??
+      tournament.require_access_code ??
+      tournament.isPrivate ??
+      (tournament as any).is_private ??
+      false
+    ),
     room_id: tournament.roomId || '',
     room_password: tournament.roomPassword || '',
-    access_code: tournament.accessCode || (tournament as any).access_code || '',
+    requires_access_code: Boolean(
+      tournament.requireAccessCode ??
+      tournament.requiresAccessCode ??
+      tournament.requires_access_code ??
+      tournament.require_access_code ??
+      tournament.isPrivate ??
+      (tournament as any).is_private ??
+      false
+    ),
+    access_code: (
+      tournament.requireAccessCode ??
+      tournament.requiresAccessCode ??
+      tournament.requires_access_code ??
+      tournament.require_access_code ??
+      tournament.isPrivate ??
+      (tournament as any).is_private ??
+      false
+    ) ? (
+      (tournament.accessCode && String(tournament.accessCode).trim().length > 0)
+        ? String(tournament.accessCode).trim()
+        : ((tournament as any).access_code && String((tournament as any).access_code).trim().length > 0)
+          ? String((tournament as any).access_code).trim()
+          : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
+    ) : null,
+    winner_note: (
+      tournament.requireAccessCode ??
+      tournament.requiresAccessCode ??
+      tournament.requires_access_code ??
+      tournament.require_access_code ??
+      tournament.isPrivate ??
+      (tournament as any).is_private ??
+      false
+    ) ? JSON.stringify({
+      access_code: (
+        (tournament.accessCode && String(tournament.accessCode).trim().length > 0)
+          ? String(tournament.accessCode).trim()
+          : ((tournament as any).access_code && String((tournament as any).access_code).trim().length > 0)
+            ? String((tournament as any).access_code).trim()
+            : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
+      ),
+      requires_access_code: true
+    }) : ((tournament as any).winner_note || (tournament as any).winnerNote || null),
     rules: Array.isArray(tournament.rules) ? tournament.rules.join('\n') : String(tournament.rules || ''),
     description: `Compete in ${gameVal} and win instant wallet rewards!`,
     participants: Array.isArray(tournament.participants) ? tournament.participants : [],
@@ -2296,25 +2793,43 @@ export async function updateTournamentInSupabase(
   categoriesList?: MatchCategory[]
 ): Promise<void> {
   const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-  updateLocalTournamentCache(id, updates);
-
-  if (!isUuid(id)) {
-    console.warn('[updateTournamentInSupabase] Non-UUID ID skipped for Supabase DB update:', id);
-    return;
-  }
-
+  
   const gameVal = updates.game || updates.category;
   const modeVal = updates.matchType;
   const mapVal = updates.map;
   const maxVal = updates.maxParticipants !== undefined ? Number(updates.maxParticipants) : updates.maxSlots !== undefined ? Number(updates.maxSlots) : undefined;
   const joinedVal = updates.joinedParticipants !== undefined ? Number(updates.joinedParticipants) : updates.filledSlots !== undefined ? Number(updates.filledSlots) : undefined;
   const killVal = updates.perKillPrize !== undefined ? Number(updates.perKillPrize) : updates.perKillReward !== undefined ? Number(updates.perKillReward) : undefined;
-  const schedVal = updates.matchSchedule || updates.schedule || updates.startTime;
+  // Prioritize explicit startTime/match_time to guarantee edited match time is not overridden by stale matchSchedule
+  const schedVal = updates.startTime || updates.match_time || updates.matchSchedule || updates.schedule;
 
-  let matchDateStr = (updates as any).matchDate || (updates as any).match_date;
-  if (!matchDateStr && schedVal) {
-    const dtInfo = getMatchDateTimeStrings(schedVal);
-    matchDateStr = dtInfo.matchDate;
+  let matchDateStr: string | undefined = undefined;
+  let dtInfoForCache: any = undefined;
+  if (schedVal) {
+    dtInfoForCache = getMatchDateTimeStrings(schedVal);
+    matchDateStr = (updates as any).matchDate || (updates as any).match_date || dtInfoForCache.matchDate;
+  } else {
+    matchDateStr = (updates as any).matchDate || (updates as any).match_date;
+  }
+
+  const cacheUpdates = {
+    ...updates,
+    ...(schedVal ? {
+      startTime: schedVal,
+      match_time: schedVal,
+      matchSchedule: schedVal,
+      schedule: schedVal,
+      matchDate: matchDateStr,
+      match_date: matchDateStr,
+      dayOfWeek: dtInfoForCache?.dayOfWeek,
+      formattedTime: dtInfoForCache?.formattedTime
+    } : {})
+  };
+  updateLocalTournamentCache(id, cacheUpdates);
+
+  if (!isUuid(id)) {
+    console.warn('[updateTournamentInSupabase] Non-UUID ID skipped for Supabase DB update:', id);
+    return;
   }
 
   let bannerImg = updates.bannerUrl || (updates as any).thumbnailUrl || (updates as any).imageUrl;
@@ -2342,6 +2857,59 @@ export async function updateTournamentInSupabase(
     });
   }
 
+  // Handle Access Code update logic
+  let requiresAccessCodeUpdate: boolean | undefined = undefined;
+  if (
+    updates.requireAccessCode !== undefined ||
+    (updates as any).requiresAccessCode !== undefined ||
+    (updates as any).require_access_code !== undefined ||
+    (updates as any).requires_access_code !== undefined ||
+    updates.isPrivate !== undefined ||
+    (updates as any).is_private !== undefined
+  ) {
+    requiresAccessCodeUpdate = Boolean(
+      updates.requireAccessCode ??
+      (updates as any).requiresAccessCode ??
+      (updates as any).require_access_code ??
+      (updates as any).requires_access_code ??
+      updates.isPrivate ??
+      (updates as any).is_private
+    );
+  }
+
+  let accessCodeUpdate: string | null | undefined = undefined;
+  if (requiresAccessCodeUpdate === false) {
+    accessCodeUpdate = null;
+  } else if (requiresAccessCodeUpdate === true) {
+    const rawCode = updates.accessCode || (updates as any).access_code;
+    accessCodeUpdate = (rawCode && typeof rawCode === 'string' && rawCode.trim().length > 0)
+      ? rawCode.trim()
+      : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase());
+  } else if (updates.accessCode !== undefined || (updates as any).access_code !== undefined) {
+    const rawCode = updates.accessCode !== undefined ? updates.accessCode : (updates as any).access_code;
+    if (rawCode && typeof rawCode === 'string' && rawCode.trim().length > 0) {
+      accessCodeUpdate = rawCode.trim();
+      requiresAccessCodeUpdate = true;
+    } else {
+      accessCodeUpdate = null;
+      requiresAccessCodeUpdate = false;
+    }
+  }
+
+  let winnerNoteUpdate: string | null | undefined = undefined;
+  if (requiresAccessCodeUpdate !== undefined) {
+    if (requiresAccessCodeUpdate === false) {
+      winnerNoteUpdate = null;
+    } else if (requiresAccessCodeUpdate === true && accessCodeUpdate) {
+      winnerNoteUpdate = JSON.stringify({
+        access_code: accessCodeUpdate,
+        requires_access_code: true
+      });
+    }
+  } else if ((updates as any).winner_note !== undefined || (updates as any).winnerNote !== undefined) {
+    winnerNoteUpdate = (updates as any).winner_note ?? (updates as any).winnerNote;
+  }
+
   const payload: Record<string, any> = cleanUndefined({
     title: updates.title ? String(updates.title).toUpperCase() : undefined,
     category_id: updates.categoryId,
@@ -2363,9 +2931,12 @@ export async function updateTournamentInSupabase(
     match_date: matchDateStr,
     status: updates.status ? String(updates.status).toUpperCase() : undefined,
     is_featured: updates.isFeatured !== undefined ? Boolean(updates.isFeatured) : undefined,
+    is_private: requiresAccessCodeUpdate,
     room_id: updates.roomId,
     room_password: updates.roomPassword,
-    access_code: updates.accessCode || (updates as any).access_code,
+    requires_access_code: requiresAccessCodeUpdate,
+    access_code: accessCodeUpdate,
+    winner_note: winnerNoteUpdate,
     rules: updates.rules !== undefined ? (Array.isArray(updates.rules) ? updates.rules.join('\n') : String(updates.rules)) : undefined,
     participants: updates.participants,
     completed_at: updates.completedAt ?? undefined,
@@ -2990,16 +3561,273 @@ async function upsertAppConfig(id: string, valueObj: any, opName: string): Promi
   console.warn(`[Supabase ${opName}] Notice: app_config write completed with note.`, lastError?.message || '');
 }
 
-// Coupons in app_config table
-export async function saveCouponInSupabase(coupon: Coupon): Promise<void> {
-  const id = coupon.id || coupon.code;
-  await upsertAppConfig(`coupon_${id}`, coupon, 'saveCouponInSupabase');
+// Coupon RPC Error Handler
+export function handleCouponError(error: any): string {
+  if (!error) return "Unable to complete the request. Please try again.";
+  const msg = (
+    typeof error === 'string'
+      ? error
+      : error?.message || error?.details || error?.hint || ''
+  ).toString();
+
+  if (/coupon code already exists|already exists|duplicate key|unique constraint/i.test(msg)) {
+    return "Coupon code already exists.";
+  }
+  if (/coupon has redemption history|redemption history|cannot be deleted/i.test(msg)) {
+    return "This coupon has redemption history and cannot be deleted. Deactivate it instead.";
+  }
+  if (/coupon not found/i.test(msg)) {
+    return "Coupon not found.";
+  }
+  if (/invalid reward amount|reward amount must be greater/i.test(msg)) {
+    return "Reward amount must be greater than zero.";
+  }
+  if (/invalid minimum deposit|minimum lifetime deposit/i.test(msg)) {
+    return "Minimum lifetime deposit cannot be negative.";
+  }
+  if (/invalid maximum uses|maximum uses must be/i.test(msg)) {
+    return "Maximum uses must be greater than zero.";
+  }
+  if (/expiry must be after|expiry date must be later|expiry must be later/i.test(msg)) {
+    return "Expiry must be after the start time.";
+  }
+
+  if (msg) {
+    return msg;
+  }
+
+  return "Unable to complete the request. Please try again.";
+}
+
+// Verify coupon admin auth session and log auth details
+export async function verifyCouponAdminAuth(): Promise<boolean> {
+  await ensureSupabaseAuthSession();
+
+  const {
+    data: { user },
+    error: userError
+  } = await supabase.auth.getUser();
+
+  console.log("AUTH USER:", user?.id);
+  console.log("AUTH EMAIL:", user?.email);
+  console.log("AUTH ERROR:", userError);
+
+  const {
+    data: adminResult,
+    error: adminError
+  } = await supabase.rpc("is_coupon_admin");
+
+  console.log("IS COUPON ADMIN:", adminResult);
+  console.log("ADMIN RPC ERROR:", adminError);
+
+  if (userError) {
+    throw new Error(`Supabase Auth Session Error: ${userError.message || String(userError)}`);
+  }
+
+  if (!user) {
+    throw new Error("Supabase Auth Session Error: No active authenticated Supabase user found.");
+  }
+
+  if (adminError) {
+    throw new Error(`is_coupon_admin RPC Error: ${adminError.message || String(adminError)}`);
+  }
+
+  if (adminResult !== true) {
+    throw new Error(`is_coupon_admin() returned false for authenticated user ${user.email} (${user.id}). Please check role in public.profiles table.`);
+  }
+
+  return true;
+}
+
+// Fetch coupons using admin_list_coupons RPC
+export async function fetchCouponsFromSupabase(): Promise<Coupon[]> {
+  await verifyCouponAdminAuth();
+  const { data, error } = await supabase.rpc('admin_list_coupons');
+  if (error) {
+    console.warn('[Coupon RPC] admin_list_coupons notice:', error.message || error);
+    throw new Error(handleCouponError(error));
+  }
+  return (data || []).map((item: any) => normalizeCouponDoc(item));
+}
+
+// Create coupon using admin_create_coupon RPC
+export async function adminCreateCouponInSupabase(payload: {
+  code: string;
+  description?: string;
+  rewardAmount: number;
+  minDepositAmount: number;
+  maxUses?: number | null;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+}): Promise<Coupon> {
+  await verifyCouponAdminAuth();
+
+  const p_code = payload.code.trim().toUpperCase();
+  const p_description = payload.description?.trim() || null;
+  const p_reward_amount = Number(payload.rewardAmount);
+  const p_min_deposit_amount = Number(payload.minDepositAmount || 0);
+  const p_max_uses = payload.maxUses && Number(payload.maxUses) > 0 ? Number(payload.maxUses) : null;
+  const p_starts_at = payload.startsAt ? new Date(payload.startsAt).toISOString() : new Date().toISOString();
+  const p_expires_at = payload.expiresAt ? new Date(payload.expiresAt).toISOString() : null;
+
+  const { data, error } = await supabase.rpc('admin_create_coupon', {
+    p_code,
+    p_description,
+    p_reward_amount,
+    p_min_deposit_amount,
+    p_max_uses,
+    p_starts_at,
+    p_expires_at
+  });
+
+  if (error) {
+    console.warn('[Coupon RPC] admin_create_coupon notice:', error.message || error);
+    throw new Error(handleCouponError(error));
+  }
+
+  if (data) {
+    return normalizeCouponDoc(Array.isArray(data) ? data[0] : data);
+  }
+
+  return normalizeCouponDoc({
+    code: p_code,
+    description: p_description,
+    reward_amount: p_reward_amount,
+    min_deposit_amount: p_min_deposit_amount,
+    max_uses: p_max_uses,
+    starts_at: p_starts_at,
+    expires_at: p_expires_at,
+    is_active: true
+  });
+}
+
+// Update coupon using admin_update_coupon RPC
+export async function adminUpdateCouponInSupabase(payload: {
+  couponId: string;
+  code: string;
+  description?: string;
+  rewardAmount: number;
+  minDepositAmount: number;
+  maxUses?: number | null;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  isActive: boolean;
+}): Promise<Coupon> {
+  await verifyCouponAdminAuth();
+
+  const p_coupon_id = payload.couponId;
+  const p_code = payload.code.trim().toUpperCase();
+  const p_description = payload.description?.trim() || null;
+  const p_reward_amount = Number(payload.rewardAmount);
+  const p_min_deposit_amount = Number(payload.minDepositAmount || 0);
+  const p_max_uses = payload.maxUses && Number(payload.maxUses) > 0 ? Number(payload.maxUses) : null;
+  const p_starts_at = payload.startsAt ? new Date(payload.startsAt).toISOString() : new Date().toISOString();
+  const p_expires_at = payload.expiresAt ? new Date(payload.expiresAt).toISOString() : null;
+  const p_is_active = Boolean(payload.isActive);
+
+  const { data, error } = await supabase.rpc('admin_update_coupon', {
+    p_coupon_id,
+    p_code,
+    p_description,
+    p_reward_amount,
+    p_min_deposit_amount,
+    p_max_uses,
+    p_starts_at,
+    p_expires_at,
+    p_is_active
+  });
+
+  if (error) {
+    console.warn('[Coupon RPC] admin_update_coupon notice:', error.message || error);
+    throw new Error(handleCouponError(error));
+  }
+
+  if (data) {
+    return normalizeCouponDoc(Array.isArray(data) ? data[0] : data);
+  }
+
+  return normalizeCouponDoc({
+    id: p_coupon_id,
+    code: p_code,
+    description: p_description,
+    reward_amount: p_reward_amount,
+    min_deposit_amount: p_min_deposit_amount,
+    max_uses: p_max_uses,
+    starts_at: p_starts_at,
+    expires_at: p_expires_at,
+    is_active: p_is_active
+  });
+}
+
+// Delete coupon using admin_delete_coupon RPC
+export async function adminDeleteCouponFromSupabase(couponId: string): Promise<void> {
+  await verifyCouponAdminAuth();
+
+  const { error } = await supabase.rpc('admin_delete_coupon', {
+    p_coupon_id: couponId
+  });
+
+  if (error) {
+    console.warn('[Coupon RPC] admin_delete_coupon notice:', error.message || error);
+    throw new Error(handleCouponError(error));
+  }
+}
+
+// Check coupon RPC
+export async function checkCouponInSupabase(code: string): Promise<any> {
+  await ensureSupabaseAuthSession();
+  const { data, error } = await supabase.rpc('check_coupon', {
+    p_code: code.trim().toUpperCase()
+  });
+  if (error) {
+    console.warn('[Coupon RPC] check_coupon notice:', error.message || error);
+    throw new Error(handleCouponError(error));
+  }
+  return data;
+}
+
+// Redeem coupon RPC
+export async function redeemCouponInSupabase(code: string): Promise<any> {
+  await ensureSupabaseAuthSession();
+  const { data, error } = await supabase.rpc('redeem_coupon', {
+    p_code: code.trim().toUpperCase()
+  });
+  if (error) {
+    console.warn('[Coupon RPC] redeem_coupon notice:', error.message || error);
+    throw new Error(handleCouponError(error));
+  }
+  return data;
+}
+
+// Wrapper aliases for compatibility
+export async function saveCouponInSupabase(coupon: Coupon): Promise<Coupon> {
+  if (coupon.id && !coupon.id.startsWith('cpn-new-') && !coupon.id.startsWith('temp-')) {
+    return await adminUpdateCouponInSupabase({
+      couponId: coupon.id,
+      code: coupon.code,
+      description: coupon.description,
+      rewardAmount: coupon.rewardAmount || coupon.discountValue || 0,
+      minDepositAmount: coupon.minDepositAmount || coupon.minDeposit || 0,
+      maxUses: coupon.maxUses ?? coupon.usageLimit,
+      startsAt: coupon.startsAt,
+      expiresAt: coupon.expiresAt || coupon.expiryDate,
+      isActive: coupon.isActive
+    });
+  } else {
+    return await adminCreateCouponInSupabase({
+      code: coupon.code,
+      description: coupon.description,
+      rewardAmount: coupon.rewardAmount || coupon.discountValue || 0,
+      minDepositAmount: coupon.minDepositAmount || coupon.minDeposit || 0,
+      maxUses: coupon.maxUses ?? coupon.usageLimit,
+      startsAt: coupon.startsAt,
+      expiresAt: coupon.expiresAt || coupon.expiryDate
+    });
+  }
 }
 
 export async function deleteCouponFromSupabase(couponId: string): Promise<void> {
-  try {
-    await supabase.from('app_config').delete().eq('id', `coupon_${couponId}`);
-  } catch {}
+  await adminDeleteCouponFromSupabase(couponId);
 }
 
 // Saved Images in app_config table & localStorage
@@ -3332,6 +4160,347 @@ export async function deleteAdminUserFromSupabase(uid: string): Promise<void> {
   try {
     await supabase.from('profiles').delete().eq('id', uid);
   } catch {}
+}
+
+// ==========================================
+// WINX7 STAFF MANAGEMENT RPC FUNCTIONS
+// ==========================================
+
+export function formatStaffError(error: any): string {
+  const msg = (
+    typeof error === 'string'
+      ? error
+      : error?.message || error?.details || error?.hint || ''
+  ).toString();
+
+  if (/only superadmin|permission|unauthorized|is_coupon_admin|forbidden|not authorized/i.test(msg)) {
+    return 'Only SUPERADMIN can manage staff accounts.';
+  }
+  if (/already a staff|already exists|duplicate key|unique constraint/i.test(msg)) {
+    return 'This user is already a staff member.';
+  }
+  if (/not found|user does not exist|does not exist/i.test(msg)) {
+    return 'User account could not be found.';
+  }
+  if (/blocked|banned|suspended user/i.test(msg)) {
+    return 'This user cannot be appointed as staff due to their account status.';
+  }
+  if (msg) {
+    return msg;
+  }
+  return 'Failed to execute staff operation.';
+}
+
+export function normalizeStaffMemberDoc(doc: any): StaffMember {
+  const profile = doc.profile || {};
+  const rawStatus = (doc.status || 'ACTIVE').toString().toUpperCase().trim();
+  const status: StaffStatus = rawStatus === 'SUSPENDED' ? 'SUSPENDED' : rawStatus === 'REMOVED' ? 'REMOVED' : 'ACTIVE';
+
+  const staffIdVal = doc.staff_id || doc.staffId || doc.staff_code || doc.id || '';
+  const userIdVal = doc.user_id || doc.userId || profile.id || '';
+  const nameVal = doc.name || doc.display_name || doc.displayName || profile.name || profile.display_name || profile.username || 'Staff Member';
+  const emailVal = doc.email || profile.email || '';
+  const phoneVal = doc.phone || profile.phone || '';
+  const ffUidVal = doc.ff_uid || doc.ffUid || doc.in_game_id || doc.inGameId || profile.in_game_id || '';
+  const ffIgnVal = doc.ff_ign || doc.ffIgn || doc.in_game_name || doc.inGameName || profile.in_game_name || '';
+
+  return {
+    id: doc.id || staffIdVal || crypto.randomUUID(),
+    staffId: staffIdVal,
+    staff_id: staffIdVal,
+    userId: userIdVal,
+    user_id: userIdVal,
+    name: nameVal,
+    displayName: nameVal,
+    email: emailVal,
+    phone: phoneVal,
+    ffUid: ffUidVal,
+    ff_uid: ffUidVal,
+    inGameId: ffUidVal,
+    ffIgn: ffIgnVal,
+    ff_ign: ffIgnVal,
+    inGameName: ffIgnVal,
+    avatarUrl: doc.avatar_url || doc.avatarUrl || profile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    avatar_url: doc.avatar_url || doc.avatarUrl || profile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    role: 'STAFF',
+    status: status,
+    notes: doc.notes || doc.admin_notes || doc.p_notes || '',
+    adminNotes: doc.notes || doc.admin_notes || doc.p_notes || '',
+    joinedDate: doc.created_at || doc.joined_date || doc.joinedDate || new Date().toISOString(),
+    created_at: doc.created_at || doc.joined_date || new Date().toISOString(),
+    approvedDate: doc.approved_at || doc.approved_date || doc.created_at || new Date().toISOString(),
+    approved_at: doc.approved_at || doc.approved_date || doc.created_at || new Date().toISOString(),
+    updated_at: doc.updated_at || new Date().toISOString(),
+  };
+}
+
+export async function fetchStaffMembersFromSupabase(): Promise<StaffMember[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_staff_members');
+    if (error) {
+      console.warn('[Staff RPC] get_staff_members notice:', error.message || error);
+      // Fallback query to staff_members table joined with profiles if RPC is missing
+      const { data: tableData, error: tableErr } = await supabase
+        .from('staff_members')
+        .select(`
+          *,
+          profile:profiles (
+            id,
+            name,
+            display_name,
+            email,
+            phone,
+            in_game_id,
+            in_game_name,
+            avatar_url,
+            status
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (tableErr) {
+        throw error;
+      }
+
+      if (tableData && Array.isArray(tableData)) {
+        return tableData.map((item: any) => normalizeStaffMemberDoc(item));
+      }
+    }
+
+    if (data && Array.isArray(data)) {
+      return data.map((item: any) => normalizeStaffMemberDoc(item));
+    }
+    return [];
+  } catch (err: any) {
+    console.error('fetchStaffMembersFromSupabase error:', err);
+    throw new Error(formatStaffError(err));
+  }
+}
+
+export async function createStaffMemberInSupabase(
+  userId: string,
+  notes?: string
+): Promise<{ success: boolean; staffId?: string; error?: string; data?: any }> {
+  try {
+    const { data, error } = await supabase.rpc('create_staff_member', {
+      p_user_id: userId,
+      p_notes: notes || ''
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    let generatedStaffId = '';
+    if (typeof data === 'string') {
+      generatedStaffId = data;
+    } else if (data && typeof data === 'object') {
+      generatedStaffId = data.staff_id || data.staffId || data.id || '';
+    }
+
+    return { success: true, staffId: generatedStaffId, data };
+  } catch (err: any) {
+    return { success: false, error: formatStaffError(err) };
+  }
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resolveStaffIdentifiers(
+  identifier: string,
+  extra?: { id?: string; userId?: string; staffCode?: string }
+): Promise<{ staffRecordId?: string; userId?: string; staffCode?: string }> {
+  let staffRecordId = extra?.id && UUID_REGEX.test(extra.id) ? extra.id : undefined;
+  let userId = extra?.userId && UUID_REGEX.test(extra.userId) ? extra.userId : undefined;
+  let staffCode = extra?.staffCode || (!UUID_REGEX.test(identifier) ? identifier : undefined);
+
+  if (UUID_REGEX.test(identifier)) {
+    if (!staffRecordId) staffRecordId = identifier;
+    if (!userId) userId = identifier;
+  }
+
+  // If we still don't have a valid UUID, look up the record in staff_members table
+  if (!staffRecordId && !userId) {
+    try {
+      const { data } = await supabase
+        .from('staff_members')
+        .select('id, user_id, staff_id, staff_code')
+        .or(`staff_id.eq.${identifier},staff_code.eq.${identifier}`)
+        .limit(1);
+
+      if (data && data[0]) {
+        if (data[0].id) staffRecordId = data[0].id;
+        if (data[0].user_id) userId = data[0].user_id;
+        if (data[0].staff_id || data[0].staff_code) staffCode = data[0].staff_id || data[0].staff_code;
+      }
+    } catch {
+      // Ignore lookup errors
+    }
+  }
+
+  return { staffRecordId, userId, staffCode };
+}
+
+export async function suspendStaffMemberInSupabase(
+  staffId: string,
+  note?: string,
+  extra?: { id?: string; userId?: string; staffCode?: string }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { staffRecordId, userId, staffCode } = await resolveStaffIdentifiers(staffId, extra);
+    const targetUuid = staffRecordId || userId;
+    let rpcSuccess = false;
+
+    // 1. Try RPC with valid UUID
+    if (targetUuid && UUID_REGEX.test(targetUuid)) {
+      const res1 = await supabase.rpc('suspend_staff', {
+        p_staff_id: targetUuid,
+        p_note: note || ''
+      });
+      if (!res1.error) {
+        rpcSuccess = true;
+      } else {
+        const res2 = await supabase.rpc('suspend_staff', {
+          p_user_id: targetUuid,
+          p_note: note || ''
+        });
+        if (!res2.error) {
+          rpcSuccess = true;
+        } else {
+          const res3 = await supabase.rpc('suspend_staff', {
+            p_staff_id: targetUuid
+          });
+          if (!res3.error) {
+            rpcSuccess = true;
+          }
+        }
+      }
+    }
+
+    // 2. Direct table update fallback to guarantee status change
+    const updatePayload: any = {
+      status: 'SUSPENDED',
+      updated_at: new Date().toISOString()
+    };
+    if (note) {
+      updatePayload.notes = note;
+    }
+
+    if (targetUuid) {
+      await supabase.from('staff_members').update(updatePayload).eq('id', targetUuid);
+      if (userId) {
+        await supabase.from('staff_members').update(updatePayload).eq('user_id', userId);
+      }
+    }
+    if (staffCode) {
+      await supabase.from('staff_members').update(updatePayload).eq('staff_id', staffCode);
+      await supabase.from('staff_members').update(updatePayload).eq('staff_code', staffCode);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: formatStaffError(err) };
+  }
+}
+
+export async function reactivateStaffMemberInSupabase(
+  staffId: string,
+  extra?: { id?: string; userId?: string; staffCode?: string }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { staffRecordId, userId, staffCode } = await resolveStaffIdentifiers(staffId, extra);
+    const targetUuid = staffRecordId || userId;
+
+    if (targetUuid && UUID_REGEX.test(targetUuid)) {
+      const res1 = await supabase.rpc('reactivate_staff', {
+        p_staff_id: targetUuid
+      });
+      if (res1.error) {
+        await supabase.rpc('reactivate_staff', {
+          p_user_id: targetUuid
+        });
+      }
+    }
+
+    // Direct table update fallback
+    const updatePayload: any = {
+      status: 'ACTIVE',
+      updated_at: new Date().toISOString()
+    };
+
+    if (targetUuid) {
+      await supabase.from('staff_members').update(updatePayload).eq('id', targetUuid);
+      if (userId) {
+        await supabase.from('staff_members').update(updatePayload).eq('user_id', userId);
+      }
+    }
+    if (staffCode) {
+      await supabase.from('staff_members').update(updatePayload).eq('staff_id', staffCode);
+      await supabase.from('staff_members').update(updatePayload).eq('staff_code', staffCode);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: formatStaffError(err) };
+  }
+}
+
+export async function removeStaffMemberInSupabase(
+  staffId: string,
+  note?: string,
+  extra?: { id?: string; userId?: string; staffCode?: string }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { staffRecordId, userId, staffCode } = await resolveStaffIdentifiers(staffId, extra);
+    const targetUuid = staffRecordId || userId;
+
+    if (targetUuid && UUID_REGEX.test(targetUuid)) {
+      const res1 = await supabase.rpc('remove_staff', {
+        p_staff_id: targetUuid,
+        p_note: note || ''
+      });
+      if (res1.error) {
+        const res2 = await supabase.rpc('remove_staff', {
+          p_staff_id: targetUuid
+        });
+        if (res2.error) {
+          await supabase.rpc('remove_staff', {
+            p_user_id: targetUuid,
+            p_note: note || ''
+          });
+        }
+      }
+    }
+
+    // Direct table update fallback
+    const updatePayload: any = {
+      status: 'REMOVED',
+      updated_at: new Date().toISOString()
+    };
+    if (note) {
+      updatePayload.notes = note;
+    }
+
+    if (targetUuid) {
+      await supabase.from('staff_members').update(updatePayload).eq('id', targetUuid);
+      if (userId) {
+        await supabase.from('staff_members').update(updatePayload).eq('user_id', userId);
+        // Demote user role in profiles table
+        await supabase.from('profiles').update({
+          role: 'user',
+          updated_at: new Date().toISOString()
+        }).eq('id', userId);
+      }
+    }
+    if (staffCode) {
+      await supabase.from('staff_members').update(updatePayload).eq('staff_id', staffCode);
+      await supabase.from('staff_members').update(updatePayload).eq('staff_code', staffCode);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: formatStaffError(err) };
+  }
 }
 
 export async function provisionStaffAccountInSupabase(params: {
@@ -3776,3 +4945,651 @@ export async function cancelMatchAndRefund(matchId: string): Promise<void> {
     throw new Error(result?.message || 'Match cancellation failed.');
   }
 }
+
+export async function joinMatchWithAccessCode(
+  matchId: string,
+  accessCode?: string
+): Promise<{ success: boolean; message: string }> {
+  await ensureSupabaseAuthSession();
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) {
+    throw new Error('Unauthorized: Please log in to join tournaments.');
+  }
+  const userId = user.id;
+
+  // 1. Fetch match record
+  const { data: matchData, error: matchErr } = await supabase
+    .from('tournaments')
+    .select('*')
+    .eq('id', matchId)
+    .maybeSingle();
+
+  if (matchErr || !matchData) {
+    throw new Error('Match not found.');
+  }
+
+  const rawStatus = String(matchData.status || '').toLowerCase();
+  if (
+    rawStatus === 'cancelled' ||
+    rawStatus === 'canceled' ||
+    rawStatus === 'completed' ||
+    rawStatus === 'finished' ||
+    matchData.results_published
+  ) {
+    throw new Error('This match is unavailable for joining.');
+  }
+
+  // 2. Verify server/database time registration cutoff (+30s after start time)
+  const matchTimeStr = matchData.match_time || matchData.start_time || matchData.startTime || matchData.matchTime || matchData.schedule || matchData.matchSchedule || matchData.created_at;
+  if (matchTimeStr) {
+    const startTimeMs = new Date(matchTimeStr).getTime();
+    if (!isNaN(startTimeMs)) {
+      const nowMs = Date.now();
+      const cutoffMs = startTimeMs + 30000; // 30s grace window after scheduled start
+      if (nowMs >= cutoffMs) {
+        throw new Error('Registration closed. The 30-second grace period for this match has expired.');
+      }
+    }
+  }
+
+  // 3. Verify Match Access Code against authoritative public.tournaments columns (access_code, requires_access_code)
+  const hasExplicitRequiresCol = matchData.requires_access_code !== undefined && matchData.requires_access_code !== null;
+  let requiresAccessCode = hasExplicitRequiresCol
+    ? Boolean(matchData.requires_access_code)
+    : Boolean(
+        matchData.requiresAccessCode ??
+        matchData.require_access_code ??
+        matchData.requireAccessCode ??
+        matchData.is_private ??
+        matchData.isPrivate ??
+        false
+      );
+
+  let dbAccessCode = (matchData.access_code !== undefined && matchData.access_code !== null)
+    ? String(matchData.access_code).trim()
+    : String(matchData.accessCode || '').trim();
+
+  // Backward compatibility fallback: ONLY if direct columns were undefined
+  if (!hasExplicitRequiresCol && !dbAccessCode && matchData.winner_note) {
+    try {
+      const meta = typeof matchData.winner_note === 'string' ? JSON.parse(matchData.winner_note) : matchData.winner_note;
+      if (meta && typeof meta === 'object') {
+        if (meta.access_code) {
+          dbAccessCode = String(meta.access_code).trim();
+        }
+        if (meta.requires_access_code !== undefined) {
+          requiresAccessCode = Boolean(meta.requires_access_code);
+        }
+      }
+    } catch {}
+  }
+
+  // Access Code OFF MUST bypass code verification.
+  // Access Code ON MUST compare entered code against public.tournaments.access_code.
+  if (requiresAccessCode) {
+    const enteredCode = String(accessCode || '').trim();
+    if (!enteredCode || !dbAccessCode || enteredCode !== dbAccessCode) {
+      throw new Error('Invalid Access Code. Please enter the correct match access code to join.');
+    }
+  }
+
+  // 4. Verify user has not already joined (check registrations & participants)
+  const { data: existingRegs, error: regCheckErr } = await supabase
+    .from('registrations')
+    .select('*')
+    .eq('tournament_id', matchId)
+    .eq('user_id', userId);
+
+  if (!regCheckErr && existingRegs && existingRegs.length > 0) {
+    throw new Error('You have already joined this match.');
+  }
+
+  const currentParts = Array.isArray(matchData.participants) ? matchData.participants : [];
+  const alreadyInInline = currentParts.some(
+    (p: any) => p && (p.userId === userId || p.id === userId || p.user_id === userId)
+  );
+  if (alreadyInInline) {
+    throw new Error('You have already joined this match.');
+  }
+
+  // 5. Check slot availability
+  const totalSlots = Number(matchData.total_slots || matchData.max_slots || matchData.maxSlots || 48);
+  const currentJoined = Math.max(currentParts.length, Number(matchData.joined_slots || 0));
+  if (currentJoined >= totalSlots) {
+    throw new Error('Match is fully booked.');
+  }
+
+  const entryFee = Number(matchData.entry_fee || matchData.entryFee || 0);
+
+  // 6. If Paid Match (entry_fee > 0), check authoritative wallet balance and deduct
+  if (entryFee > 0) {
+    const wallet = await getUserWallet(userId);
+    const availableBalance = wallet.depositBalance + wallet.winningBalance;
+    if (availableBalance < entryFee) {
+      throw new Error('Insufficient balance. Please add money to your wallet.');
+    }
+
+    let newDep = wallet.depositBalance;
+    let newWin = wallet.winningBalance;
+    if (newDep >= entryFee) {
+      newDep -= entryFee;
+    } else {
+      const remainder = entryFee - newDep;
+      newDep = 0;
+      newWin = Math.max(0, newWin - remainder);
+    }
+
+    await syncUserWallet(userId, newDep, newWin, wallet.bonusBalance);
+
+    const txId = crypto.randomUUID();
+    const { error: txErr } = await supabase.from('wallet_transactions').insert({
+      id: txId,
+      user_id: userId,
+      type: 'entry_fee',
+      amount: entryFee,
+      status: 'completed',
+      description: `Entry fee for tournament: ${matchData.title || matchId}`,
+      reference_id: matchId,
+      created_at: new Date().toISOString(),
+    });
+
+    if (txErr) {
+      // Rollback wallet balance on transaction failure
+      await syncUserWallet(userId, wallet.depositBalance, wallet.winningBalance, wallet.bonusBalance);
+      throw new Error(`Failed to record payment transaction: ${txErr.message}`);
+    }
+  }
+
+  // 7. Insert registration record
+  const assignedSlot = currentJoined + 1;
+  const regId = crypto.randomUUID();
+  const { error: insertRegErr } = await supabase.from('registrations').insert({
+    id: regId,
+    tournament_id: matchId,
+    user_id: userId,
+    slot_number: assignedSlot,
+    status: 'registered',
+    entry_fee: entryFee,
+    created_at: new Date().toISOString(),
+  });
+
+  if (insertRegErr) {
+    if (entryFee > 0) {
+      const currentWallet = await getUserWallet(userId);
+      await syncUserWallet(
+        userId,
+        currentWallet.depositBalance + entryFee,
+        currentWallet.winningBalance,
+        currentWallet.bonusBalance
+      );
+      await supabase
+        .from('wallet_transactions')
+        .delete()
+        .eq('reference_id', matchId)
+        .eq('user_id', userId)
+        .eq('type', 'entry_fee');
+    }
+    throw new Error(`Failed to register for tournament: ${insertRegErr.message}`);
+  }
+
+  // 8. Update tournaments record joined_slots & participants
+  const newParticipant = {
+    userId,
+    id: userId,
+    joinedAt: new Date().toISOString(),
+    slotNumber: assignedSlot,
+    status: 'registered',
+  };
+  const updatedParticipants = [...currentParts, newParticipant];
+  const newJoinedCount = updatedParticipants.length;
+
+  await supabase
+    .from('tournaments')
+    .update({
+      joined_slots: newJoinedCount,
+      participants: updatedParticipants,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', matchId);
+
+  if (entryFee > 0) {
+    return {
+      success: true,
+      message: `Entry successful. ₹${entryFee} deducted from your wallet.`,
+    };
+  } else {
+    return {
+      success: true,
+      message: 'Match Joined Successfully',
+    };
+  }
+}
+
+export const joinTournament = joinMatchWithAccessCode;
+
+/* ==========================================================================
+   RESULT REQUEST MANAGEMENT SERVICES (Supabase Backend + Realtime)
+   ========================================================================== */
+
+export async function fetchResultRequestsFromSupabase(): Promise<ResultRequest[]> {
+  try {
+    let requests: ResultRequest[] = [];
+
+    // 1. Try dedicated result_requests table
+    const { data: tableData, error: tableErr } = await supabase
+      .from('result_requests')
+      .select('*')
+      .order('submitted_at', { ascending: false });
+
+    if (!tableErr && tableData) {
+      requests = tableData.map((row: any) => ({
+        id: row.id,
+        matchId: row.match_id || row.matchId,
+        matchTitle: row.match_title || row.matchTitle || 'Match Result',
+        matchCategory: row.match_category || row.matchCategory,
+        matchType: row.match_type || row.matchType,
+        map: row.map,
+        entryFee: Number(row.entry_fee ?? row.entryFee ?? 0),
+        prizePool: Number(row.prize_pool ?? row.prizePool ?? 0),
+        matchDateTime: row.match_date_time || row.matchDateTime,
+        matchStatus: row.match_status || row.matchStatus,
+        submittedByStaffId: row.submitted_by_staff_id || row.submittedByStaffId || 'Staff',
+        submittedByStaffName: row.submitted_by_staff_name || row.submittedByStaffName || 'Staff Member',
+        submittedByStaffEmail: row.submitted_by_staff_email || row.submittedByStaffEmail,
+        submittedAt: row.submitted_at || row.submittedAt || new Date().toISOString(),
+        status: (row.status || 'PENDING').toUpperCase() as ResultRequestStatus,
+        participantCount: Number(row.participant_count ?? row.participantCount ?? (row.participant_results?.length || 0)),
+        participantResults: Array.isArray(row.participant_results) ? row.participant_results : (Array.isArray(row.participantResults) ? row.participantResults : []),
+        resultSummary: typeof row.result_summary === 'object' && row.result_summary ? row.result_summary : (typeof row.resultSummary === 'object' && row.resultSummary ? row.resultSummary : {}),
+        evidenceUrls: Array.isArray(row.evidence_urls) ? row.evidence_urls : (Array.isArray(row.evidenceUrls) ? row.evidenceUrls : []),
+        proofNotes: row.proof_notes || row.proofNotes,
+        rejectionReason: row.rejection_reason || row.rejectionReason,
+        rejectedAt: row.rejected_at || row.rejectedAt,
+        rejectedBy: row.rejected_by || row.rejectedBy,
+        approvedAt: row.approved_at || row.approvedAt,
+        approvedBy: row.approved_by || row.approvedBy,
+        updatedAt: row.updated_at || row.updatedAt || new Date().toISOString()
+      }));
+    } else {
+      // 2. Fallback to app_config table key 'result_requests'
+      const { data: configData } = await supabase
+        .from('app_config')
+        .select('*')
+        .eq('id', 'result_requests')
+        .maybeSingle();
+
+      if (configData) {
+        const raw = configData.value ?? configData.data ?? configData.payload ?? configData.content;
+        let list: any[] = [];
+        if (Array.isArray(raw)) {
+          list = raw;
+        } else if (typeof raw === 'string') {
+          try { list = JSON.parse(raw); } catch {}
+        }
+        if (Array.isArray(list)) {
+          requests = list.map((item: any) => ({
+            id: item.id || `rr_${item.matchId}_${Date.now()}`,
+            matchId: item.matchId || item.match_id,
+            matchTitle: item.matchTitle || item.match_title || 'Match Result',
+            matchCategory: item.matchCategory || item.match_category,
+            matchType: item.matchType || item.match_type,
+            map: item.map,
+            entryFee: Number(item.entryFee ?? item.entry_fee ?? 0),
+            prizePool: Number(item.prizePool ?? item.prize_pool ?? 0),
+            matchDateTime: item.matchDateTime || item.match_date_time,
+            matchStatus: item.matchStatus || item.match_status,
+            submittedByStaffId: item.submittedByStaffId || item.submitted_by_staff_id || 'Staff',
+            submittedByStaffName: item.submittedByStaffName || item.submitted_by_staff_name || 'Staff Member',
+            submittedByStaffEmail: item.submittedByStaffEmail || item.submitted_by_staff_email,
+            submittedAt: item.submittedAt || item.submitted_at || new Date().toISOString(),
+            status: (item.status || 'PENDING').toUpperCase() as ResultRequestStatus,
+            participantCount: Number(item.participantCount ?? item.participant_count ?? (item.participantResults?.length || 0)),
+            participantResults: Array.isArray(item.participantResults) ? item.participantResults : (Array.isArray(item.participant_results) ? item.participant_results : []),
+            resultSummary: typeof item.resultSummary === 'object' && item.resultSummary ? item.resultSummary : (typeof item.result_summary === 'object' && item.result_summary ? item.result_summary : {}),
+            evidenceUrls: Array.isArray(item.evidenceUrls) ? item.evidenceUrls : (Array.isArray(item.evidence_urls) ? item.evidence_urls : []),
+            proofNotes: item.proofNotes || item.proof_notes,
+            rejectionReason: item.rejectionReason || item.rejection_reason,
+            rejectedAt: item.rejectedAt || item.rejected_at,
+            rejectedBy: item.rejectedBy || item.rejected_by,
+            approvedAt: item.approvedAt || item.approved_at,
+            approvedBy: item.approvedBy || item.approved_by,
+            updatedAt: item.updatedAt || item.updated_at || new Date().toISOString()
+          }));
+        }
+      }
+    }
+
+    // Sort descending by submittedAt
+    return requests.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+  } catch (err) {
+    console.warn('[Supabase] Error fetching result requests:', err);
+    return [];
+  }
+}
+
+export async function submitResultRequestToSupabase(
+  payload: Omit<ResultRequest, 'id' | 'submittedAt' | 'status' | 'updatedAt'>
+): Promise<{ success: boolean; request: ResultRequest }> {
+  await ensureSupabaseAuthSession();
+  const { matchId } = payload;
+  if (!matchId) throw new Error('Match ID is required to submit a result request.');
+
+  // 1. Fetch current requests to enforce Duplicate Prevention Guard (Requirement #11)
+  const existingRequests = await fetchResultRequestsFromSupabase();
+  const existingPending = existingRequests.find(r => r.matchId === matchId && r.status === 'PENDING');
+  if (existingPending) {
+    throw new Error(`A result verification request for this match (${payload.matchTitle || matchId}) is already PENDING Admin verification.`);
+  }
+
+  // Check if tournament results are already published
+  const { data: tourn } = await supabase
+    .from('tournaments')
+    .select('status, results_published')
+    .eq('id', matchId)
+    .maybeSingle();
+
+  if (tourn?.results_published || ['completed', 'finished'].includes(String(tourn?.status || '').toLowerCase())) {
+    throw new Error('Results for this match are already officially published.');
+  }
+
+  const now = new Date().toISOString();
+  const requestId = `rr_${matchId}_${Date.now()}`;
+
+  const newRequest: ResultRequest = {
+    ...payload,
+    id: requestId,
+    submittedAt: now,
+    status: 'PENDING',
+    updatedAt: now,
+  };
+
+  // 2. Persist to dedicated table or app_config fallback
+  try {
+    const dbPayload = {
+      id: requestId,
+      match_id: matchId,
+      match_title: payload.matchTitle,
+      match_category: payload.matchCategory,
+      match_type: payload.matchType,
+      map: payload.map,
+      entry_fee: payload.entryFee || 0,
+      prize_pool: payload.prizePool || 0,
+      match_date_time: payload.matchDateTime,
+      match_status: payload.matchStatus || 'live',
+      submitted_by_staff_id: payload.submittedByStaffId,
+      submitted_by_staff_name: payload.submittedByStaffName,
+      submitted_by_staff_email: payload.submittedByStaffEmail,
+      submitted_at: now,
+      status: 'PENDING',
+      participant_count: payload.participantCount || payload.participantResults.length,
+      participant_results: payload.participantResults,
+      result_summary: payload.resultSummary,
+      evidence_urls: payload.evidenceUrls || [],
+      proof_notes: payload.proofNotes || '',
+      updated_at: now,
+    };
+
+    const { error: insertErr } = await supabase.from('result_requests').upsert(dbPayload);
+    if (insertErr) {
+      // Table doesn't exist, store in app_config
+      const updatedList = [newRequest, ...existingRequests.filter(r => r.id !== requestId)];
+      await supabase.from('app_config').upsert({
+        id: 'result_requests',
+        value: updatedList,
+        updated_at: now
+      });
+    }
+  } catch {
+    const updatedList = [newRequest, ...existingRequests.filter(r => r.id !== requestId)];
+    await supabase.from('app_config').upsert({
+      id: 'result_requests',
+      value: updatedList,
+      updated_at: now
+    });
+  }
+
+  // 3. Update tournament state
+  await supabase
+    .from('tournaments')
+    .update({
+      result_request_status: 'PENDING',
+      result_submitted_at: now,
+      result_submitted_by: payload.submittedByStaffName,
+      updated_at: now,
+    })
+    .eq('id', matchId);
+
+  // 4. Send Realtime Broadcast Signal
+  try {
+    const channel = supabase.channel('winx7_realtime_events');
+    await channel.send({
+      type: 'broadcast',
+      event: 'RESULT_REQUEST_CREATED',
+      payload: { matchId, requestId, status: 'PENDING' },
+    });
+  } catch {}
+
+  return { success: true, request: newRequest };
+}
+
+export async function approveAndPublishResultRequestInSupabase(
+  requestId: string,
+  adminUser: { uid: string; displayName: string; role?: string }
+): Promise<{ success: boolean; message: string }> {
+  await ensureSupabaseAuthSession();
+
+  // 1. Backend Security Check (Requirement #12)
+  const { data: { user } } = await supabase.auth.getUser();
+  let userRole = adminUser.role || '';
+  if (user) {
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    if (profile?.role) userRole = profile.role;
+  }
+
+  const normalizedRole = userRole.toLowerCase().trim();
+  if (normalizedRole === 'staff') {
+    throw new Error('Security Error: Staff users are strictly forbidden from approving or publishing result requests.');
+  }
+
+  // 2. Retrieve request details
+  const allRequests = await fetchResultRequestsFromSupabase();
+  const request = allRequests.find(r => r.id === requestId || r.matchId === requestId);
+  if (!request) throw new Error('Result request not found.');
+
+  const now = new Date().toISOString();
+  request.status = 'APPROVED';
+  request.approvedAt = now;
+  request.approvedBy = adminUser.displayName || adminUser.uid || 'Admin';
+  request.updatedAt = now;
+
+  // 3. Transform participant results into RPC format
+  const rpcResults = request.participantResults
+    .map((p) => {
+      const resolvedId = (p.userId || (p as any).user_id || (p as any).uid || (p as any).id || '').toString().trim();
+      return {
+        user_id: resolvedId,
+        rank: Number(p.rank || 0),
+        kills: Number(p.kills || 0),
+        prize_won: Number(p.prizeWon ?? (p as any).prize_won ?? 0)
+      };
+    })
+    .filter(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.user_id));
+
+  if (rpcResults.length === 0) {
+    throw new Error('No valid player user IDs found to credit winnings. Please verify player registrations.');
+  }
+
+  // 4. Publish results via authoritative Supabase RPC
+  await publishMatchResults(request.matchId, rpcResults);
+
+  // 5. Update Result Request record in DB
+  try {
+    const { error: updateErr } = await supabase
+      .from('result_requests')
+      .update({
+        status: 'APPROVED',
+        approved_at: now,
+        approved_by: adminUser.displayName,
+        updated_at: now
+      })
+      .eq('id', requestId);
+
+    if (updateErr) {
+      const updatedList = allRequests.map(r => r.id === requestId ? request : r);
+      await supabase.from('app_config').upsert({
+        id: 'result_requests',
+        value: updatedList,
+        updated_at: now
+      });
+    }
+  } catch {
+    const updatedList = allRequests.map(r => r.id === requestId ? request : r);
+    await supabase.from('app_config').upsert({
+      id: 'result_requests',
+      value: updatedList,
+      updated_at: now
+    });
+  }
+
+  // 6. Update tournament metadata
+  await supabase
+    .from('tournaments')
+    .update({
+      status: 'completed',
+      results_published: true,
+      result_request_status: 'APPROVED',
+      completed_at: now,
+      updated_at: now
+    })
+    .eq('id', request.matchId);
+
+  // 7. Realtime Broadcast Notification (Requirement #8 & #9)
+  try {
+    const channel = supabase.channel('winx7_realtime_events');
+    await channel.send({
+      type: 'broadcast',
+      event: 'RESULT_REQUEST_APPROVED',
+      payload: { matchId: request.matchId, requestId, status: 'APPROVED' }
+    });
+  } catch {}
+
+  return { success: true, message: `Result for match "${request.matchTitle}" has been approved and published.` };
+}
+
+export async function rejectResultRequestInSupabase(
+  requestId: string,
+  rejectionReason: string,
+  adminUser: { uid: string; displayName: string; role?: string }
+): Promise<{ success: boolean; message: string }> {
+  await ensureSupabaseAuthSession();
+  if (!rejectionReason || !rejectionReason.trim()) {
+    throw new Error('Rejection reason is required.');
+  }
+
+  // 1. Security Check
+  const { data: { user } } = await supabase.auth.getUser();
+  let userRole = adminUser.role || '';
+  if (user) {
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    if (profile?.role) userRole = profile.role;
+  }
+  if (userRole.toLowerCase().trim() === 'staff') {
+    throw new Error('Security Error: Staff users cannot reject result requests.');
+  }
+
+  const allRequests = await fetchResultRequestsFromSupabase();
+  const request = allRequests.find(r => r.id === requestId || r.matchId === requestId);
+  if (!request) throw new Error('Result request not found.');
+
+  const now = new Date().toISOString();
+  request.status = 'REJECTED';
+  request.rejectionReason = rejectionReason.trim();
+  request.rejectedAt = now;
+  request.rejectedBy = adminUser.displayName || adminUser.uid || 'Admin';
+  request.updatedAt = now;
+
+  // 2. Update DB record
+  try {
+    const { error: updateErr } = await supabase
+      .from('result_requests')
+      .update({
+        status: 'REJECTED',
+        rejection_reason: rejectionReason.trim(),
+        rejected_at: now,
+        rejected_by: adminUser.displayName,
+        updated_at: now
+      })
+      .eq('id', requestId);
+
+    if (updateErr) {
+      const updatedList = allRequests.map(r => r.id === requestId ? request : r);
+      await supabase.from('app_config').upsert({
+        id: 'result_requests',
+        value: updatedList,
+        updated_at: now
+      });
+    }
+  } catch {
+    const updatedList = allRequests.map(r => r.id === requestId ? request : r);
+    await supabase.from('app_config').upsert({
+      id: 'result_requests',
+      value: updatedList,
+      updated_at: now
+    });
+  }
+
+  // 3. Update tournament metadata to allow Staff correction & resubmission
+  await supabase
+    .from('tournaments')
+    .update({
+      result_request_status: 'REJECTED',
+      rejection_reason: rejectionReason.trim(),
+      updated_at: now
+    })
+    .eq('id', request.matchId);
+
+  // 4. Realtime Broadcast
+  try {
+    const channel = supabase.channel('winx7_realtime_events');
+    await channel.send({
+      type: 'broadcast',
+      event: 'RESULT_REQUEST_REJECTED',
+      payload: { matchId: request.matchId, requestId, status: 'REJECTED', rejectionReason: rejectionReason.trim() }
+    });
+  } catch {}
+
+  return { success: true, message: `Result request for "${request.matchTitle}" rejected.` };
+}
+
+export function subscribeToResultRequests(onUpdate: (requests: ResultRequest[]) => void): () => void {
+  let isSubscribed = true;
+
+  const loadData = async () => {
+    if (!isSubscribed) return;
+    const requests = await fetchResultRequestsFromSupabase();
+    if (isSubscribed) {
+      onUpdate(requests);
+    }
+  };
+
+  loadData();
+
+  // Setup Postgres changes listener & broadcast listener
+  const channel = supabase.channel('winx7_result_requests_rt')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'result_requests' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, () => loadData())
+    .on('broadcast', { event: 'RESULT_REQUEST_CREATED' }, () => loadData())
+    .on('broadcast', { event: 'RESULT_REQUEST_APPROVED' }, () => loadData())
+    .on('broadcast', { event: 'RESULT_REQUEST_REJECTED' }, () => loadData())
+    .subscribe();
+
+  const intervalId = setInterval(loadData, 8000);
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(intervalId);
+    supabase.removeChannel(channel);
+  };
+}
+

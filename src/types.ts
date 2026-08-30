@@ -1,6 +1,37 @@
 export type AdminRole = 'superadmin' | 'admin' | 'staff';
 export type AdminStatus = 'active' | 'inactive';
 
+export type StaffStatus = 'ACTIVE' | 'SUSPENDED' | 'REMOVED';
+
+export interface StaffMember {
+  id: string;
+  staffId?: string;
+  staff_id?: string;
+  userId: string;
+  user_id?: string;
+  name: string;
+  displayName?: string;
+  email: string;
+  phone?: string;
+  ffUid?: string;
+  ff_uid?: string;
+  inGameId?: string;
+  ffIgn?: string;
+  ff_ign?: string;
+  inGameName?: string;
+  avatarUrl?: string;
+  avatar_url?: string;
+  role: 'STAFF';
+  status: StaffStatus;
+  notes?: string;
+  adminNotes?: string;
+  joinedDate?: string;
+  created_at?: string;
+  approvedDate?: string;
+  approved_at?: string;
+  updated_at?: string;
+}
+
 export interface AdminUser {
   uid: string;
   id?: string;
@@ -158,6 +189,12 @@ export interface Tournament {
   roomPassword?: string;
   accessCode?: string;
   access_code?: string;
+  requireAccessCode?: boolean;
+  requiresAccessCode?: boolean;
+  requires_access_code?: boolean;
+  require_access_code?: boolean;
+  isPrivate?: boolean;
+  is_private?: boolean;
   isRoomReleased: boolean;
   roomDetailsVisible?: boolean;
   isRoomCredentialsVisible?: boolean;
@@ -186,6 +223,62 @@ export interface Tournament {
   formattedTime?: string;
   prizeDistribution?: PrizeDistributionItem[];
   prize_distribution?: PrizeDistributionItem[];
+  result_request_status?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  resultRequestStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  result_submitted_at?: string;
+  resultSubmittedAt?: string;
+  result_submitted_by?: string;
+  resultSubmittedBy?: string;
+  rejection_reason?: string;
+  rejectionReason?: string;
+}
+
+export type ResultRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface ResultRequestParticipant {
+  userId: string;
+  username: string;
+  inGameId: string;
+  inGameName: string;
+  slotNumber?: number;
+  rank: number;
+  kills: number;
+  prizeWon: number;
+  email?: string;
+  [key: string]: any;
+}
+
+export interface ResultRequest {
+  id: string;
+  matchId: string;
+  matchTitle: string;
+  matchCategory?: string;
+  matchType?: string;
+  map?: string;
+  entryFee?: number;
+  prizePool?: number;
+  matchDateTime?: string;
+  matchStatus?: string;
+  submittedByStaffId: string;
+  submittedByStaffName: string;
+  submittedByStaffEmail?: string;
+  submittedAt: string;
+  status: ResultRequestStatus;
+  participantCount: number;
+  participantResults: ResultRequestParticipant[];
+  resultSummary: {
+    winnerName?: string;
+    totalKills?: number;
+    totalPrizeDistributed?: number;
+  };
+  evidenceUrls?: string[];
+  proofNotes?: string;
+  rejectionReason?: string;
+  rejectedAt?: string;
+  rejectedBy?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+  updatedAt: string;
 }
 
 export type TransactionType = 'deposit' | 'withdrawal' | 'entry_fee' | 'winning' | 'kill_bonus' | 'refund' | 'admin_adjustment';
@@ -262,20 +355,26 @@ export interface AppNotification {
 export interface Coupon {
   id: string;
   code: string;
-  discountType: 'percentage' | 'fixed';
-  discountValue: number;
-  minDeposit: number;
-  minDepositAmount?: number;
-  maxDiscount?: number;
-  maxDiscountAmount?: number;
-  usageLimit?: number;
-  timesUsed?: number;
-  usedCount?: number;
-  expiryDate?: string;
-  validUntil?: string;
+  description?: string;
+  rewardAmount: number;
+  minDepositAmount: number;
+  maxUses?: number | null;
+  usedCount: number;
+  startsAt?: string | null;
+  expiresAt?: string | null;
   isActive: boolean;
   createdAt: string;
-  description?: string;
+
+  // Compatibility fields
+  discountType?: 'percentage' | 'fixed';
+  discountValue?: number;
+  minDeposit?: number;
+  usageLimit?: number | null;
+  timesUsed?: number;
+  expiryDate?: string | null;
+  validUntil?: string | null;
+  maxDiscount?: number;
+  maxDiscountAmount?: number;
 }
 
 export interface SupportLinkItem {

@@ -26,6 +26,7 @@ interface SidebarProps {
   closeSidebar: () => void;
   pendingDepositsCount?: number;
   pendingWithdrawalsCount?: number;
+  pendingResultRequestsCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -34,7 +35,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   closeSidebar,
   pendingDepositsCount = 0,
-  pendingWithdrawalsCount = 0
+  pendingWithdrawalsCount = 0,
+  pendingResultRequestsCount = 0
 }) => {
   const { logout, currentUser, isSuperAdmin } = useAuth();
 
@@ -44,6 +46,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'matches', label: 'Matches', icon: Gamepad2, badge: 'Live' },
+    { id: 'result-requests', label: 'Result Requests', icon: Trophy, pendingBadge: pendingResultRequestsCount },
     { id: 'saved-images', label: 'Saved Images', icon: Image },
     { id: 'deposits', label: 'Deposits', icon: ArrowDownCircle, pendingBadge: pendingDepositsCount },
     { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpCircle, pendingBadge: pendingWithdrawalsCount },
@@ -51,7 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'coupons', label: 'Coupons', icon: Ticket },
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'support', label: 'Support Desk', icon: Headphones },
-    { id: 'staff', label: 'Staff & Roles', icon: UserCheck, superadminOnly: true }
+    { id: 'staff', label: 'Staff Management', icon: UserCheck, superadminOnly: true }
   ];
 
   const handleSelect = (id: string) => {

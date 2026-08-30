@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { WalletTransaction } from '../../types';
+import { WalletTransaction, AppUser } from '../../types';
+import { resolveUserDisplayName } from '../../services/supabaseService';
 import { ArrowUpRight, CheckCircle2, XCircle, Search, AlertCircle, Copy, Check, RotateCcw } from 'lucide-react';
 
 interface WithdrawalsViewProps {
   transactions: WalletTransaction[];
+  users?: AppUser[];
   onApprove: (tx: WalletTransaction, notes?: string) => void;
   onReject: (txId: string, notes?: string) => void;
   onRefund?: (tx: WalletTransaction) => void;
@@ -11,6 +13,7 @@ interface WithdrawalsViewProps {
 
 export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
   transactions,
+  users = [],
   onApprove,
   onReject,
   onRefund
@@ -28,7 +31,11 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
     if (!tx) return false;
     const matchesFilter = filter === 'all' ? true : tx.status === filter;
     const q = (search || '').toLowerCase();
+    const resolved = resolveUserDisplayName(tx, users);
     const matchesSearch =
+      (resolved.username || '').toLowerCase().includes(q) ||
+      (resolved.inGameName || '').toLowerCase().includes(q) ||
+      (resolved.email || '').toLowerCase().includes(q) ||
       (tx.username || '').toLowerCase().includes(q) ||
       (tx.upiId ? tx.upiId.toLowerCase().includes(q) : false) ||
       (tx.withdrawalRequestId ? tx.withdrawalRequestId.toLowerCase().includes(q) : false) ||
@@ -124,7 +131,9 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
             No {filter !== 'all' ? filter : ''} withdrawal requests found.
           </div>
         ) : (
-          filtered.map((tx) => (
+          filtered.map((tx) => {
+            const userDisplay = resolveUserDisplayName(tx, users);
+            return (
             <div
               key={tx.id}
               className="p-4 rounded-2xl bg-[#15112E] border border-purple-800/40 hover:border-purple-600 transition flex flex-col md:flex-row md:items-center justify-between gap-4"
@@ -136,8 +145,13 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-extrabold text-sm text-white">{tx.username}</h3>
-                    <span className="text-[10px] text-purple-400 font-mono">UID: {tx.userId}</span>
+                    <h3 className="font-extrabold text-sm text-white">
+                      {userDisplay.username}
+                      {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
+                        <span className="text-xs text-purple-300 font-normal ml-1">({userDisplay.inGameName})</span>
+                      ) : null}
+                    </h3>
+                    <span className="text-[10px] text-purple-400 font-mono">UID: {userDisplay.userId !== 'N/A' ? userDisplay.userId : tx.userId}</span>
                     <span
                       className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
                         tx.status === 'pending'
@@ -248,7 +262,8 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
                 )}
               </div>
             </div>
-          ))
+          );
+          })
         )}
       </div>
 

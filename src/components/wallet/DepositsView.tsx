@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { WalletTransaction } from '../../types';
+import { WalletTransaction, AppUser } from '../../types';
+import { resolveUserDisplayName } from '../../services/supabaseService';
 import { ArrowDownRight, CheckCircle2, XCircle, Eye, Search, AlertCircle, FileText, Trash2, RefreshCw } from 'lucide-react';
 
 interface DepositsViewProps {
   transactions: WalletTransaction[];
+  users?: AppUser[];
   onApprove: (tx: WalletTransaction, notes?: string) => void;
   onReject: (txId: string, notes?: string) => void;
   onDelete?: (txOrId: WalletTransaction | string) => void;
@@ -13,6 +15,7 @@ interface DepositsViewProps {
 
 export const DepositsView: React.FC<DepositsViewProps> = ({
   transactions,
+  users = [],
   onApprove,
   onReject,
   onDelete,
@@ -32,7 +35,11 @@ export const DepositsView: React.FC<DepositsViewProps> = ({
     if (!tx) return false;
     const matchesFilter = filter === 'all' ? true : tx.status === filter;
     const q = (search || '').toLowerCase();
+    const resolved = resolveUserDisplayName(tx, users);
     const matchesSearch =
+      (resolved.username || '').toLowerCase().includes(q) ||
+      (resolved.inGameName || '').toLowerCase().includes(q) ||
+      (resolved.email || '').toLowerCase().includes(q) ||
       (tx.username || '').toLowerCase().includes(q) ||
       (tx.referenceId || '').toLowerCase().includes(q) ||
       (tx.utr || '').toLowerCase().includes(q) ||
@@ -146,7 +153,9 @@ export const DepositsView: React.FC<DepositsViewProps> = ({
             No {filter !== 'all' ? filter : ''} deposit transactions found.
           </div>
         ) : (
-          filtered.map((tx) => (
+          filtered.map((tx) => {
+            const userDisplay = resolveUserDisplayName(tx, users);
+            return (
             <div
               key={tx.id}
               className="p-4 rounded-2xl bg-[#15112E] border border-purple-800/40 hover:border-purple-600 transition flex flex-col md:flex-row md:items-center justify-between gap-4"
@@ -158,8 +167,13 @@ export const DepositsView: React.FC<DepositsViewProps> = ({
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-extrabold text-sm text-white">{tx.username}</h3>
-                    <span className="text-[10px] text-purple-400 font-mono">UID: {tx.userId}</span>
+                    <h3 className="font-extrabold text-sm text-white">
+                      {userDisplay.username}
+                      {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
+                        <span className="text-xs text-purple-300 font-normal ml-1">({userDisplay.inGameName})</span>
+                      ) : null}
+                    </h3>
+                    <span className="text-[10px] text-purple-400 font-mono">UID: {userDisplay.userId !== 'N/A' ? userDisplay.userId : tx.userId}</span>
                     <span
                       className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
                         tx.status === 'pending'
@@ -200,14 +214,14 @@ export const DepositsView: React.FC<DepositsViewProps> = ({
                   )}
 
                   <div className="flex items-center gap-3 text-[10px] mt-1.5 text-purple-300/80 flex-wrap">
-                    {(tx.fullName || tx.senderName) && (
-                      <span>Name: <strong className="text-purple-200">{tx.fullName || tx.senderName}</strong></span>
+                    {(userDisplay.inGameId && userDisplay.inGameId !== 'N/A') && (
+                      <span>Game UID: <strong className="text-amber-300 font-mono">{userDisplay.inGameId}</strong></span>
                     )}
-                    {tx.userPhone && (
-                      <span>Phone: <strong className="text-purple-200">{tx.userPhone}</strong></span>
+                    {(userDisplay.email && userDisplay.email !== 'N/A') && (
+                      <span>Email: <strong className="text-purple-200">{userDisplay.email}</strong></span>
                     )}
-                    {tx.userEmail && (
-                      <span>Email: <strong className="text-purple-200">{tx.userEmail}</strong></span>
+                    {(userDisplay.phone && userDisplay.phone !== 'N/A') && (
+                      <span>Phone: <strong className="text-purple-200">{userDisplay.phone}</strong></span>
                     )}
                   </div>
 
@@ -261,7 +275,8 @@ export const DepositsView: React.FC<DepositsViewProps> = ({
                 )}
               </div>
             </div>
-          ))
+          );
+          })
         )}
       </div>
 

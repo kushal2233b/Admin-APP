@@ -15,8 +15,9 @@ import {
 } from '../../types';
 import { uploadToStorage } from '../../services/storageService';
 import { getCategoryBannerImage, handleImageFallback } from '../../data/categoryImages';
-import { Upload, Eye, Copy, Search, RefreshCw, Clock, ShieldCheck } from 'lucide-react';
-import { getMatchParticipantsFromSupabase } from '../../services/supabaseService';
+import { Upload, Eye, Copy, Search, RefreshCw, Clock, ShieldCheck, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { getMatchParticipantsFromSupabase, getMatchDateTimeStrings } from '../../services/supabaseService';
 import {
   Trophy,
   Plus,
@@ -56,6 +57,8 @@ interface TournamentManagementProps {
   onDeleteTournament: (id: string) => void;
   onReleaseRoomCredentials: (id: string, roomId: string, pass: string) => void;
   onPublishMatchResults: (id: string, updatedParticipants: Participant[]) => void;
+  onSubmitResultForVerification?: (matchId: string, participantResults: Participant[], proofNotes?: string, evidenceUrls?: string[]) => Promise<void>;
+  onNavigateToResultRequests?: () => void;
   onCancelMatchAndRefund?: (id: string) => Promise<void>;
   onSaveCategory?: (cat: MatchCategory) => void;
   onDeleteCategory?: (catId: string) => void;
@@ -357,6 +360,8 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   onDeleteTournament,
   onReleaseRoomCredentials,
   onPublishMatchResults,
+  onSubmitResultForVerification,
+  onNavigateToResultRequests,
   onCancelMatchAndRefund,
   onSaveCategory,
   onDeleteCategory,
@@ -366,6 +371,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   savedImages = [],
   onNavigateToSavedImages
 }) => {
+  const { currentUser } = useAuth();
   const [filterGame, setFilterGame] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
@@ -403,6 +409,103 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   const [participantError, setParticipantError] = useState<string | null>(null);
   const [isSubmittingResults, setIsSubmittingResults] = useState<string | null>(null);
   const [isCancellingMatch, setIsCancellingMatch] = useState<string | null>(null);
+
+  // Match management safety & duplicate modal states
+  const [duplicatingTournament, setDuplicatingTournament] = useState<Tournament | null>(null);
+  const [duplicateStartTime, setDuplicateStartTime] = useState<string>('');
+  const [cancellingTournament, setCancellingTournament] = useState<Tournament | null>(null);
+  const [deletingTournament, setDeletingTournament] = useState<Tournament | null>(null);
+  const [expandedDangerZoneId, setExpandedDangerZoneId] = useState<string | null>(null);
+
+  const handleOpenDuplicateModal = (match: Tournament) => {
+    setDuplicatingTournament(match);
+    const origDate = new Date(match.startTime);
+    if (!isNaN(origDate.getTime()) && origDate.getTime() > Date.now()) {
+      setDuplicateStartTime(formatForDateTimeLocal(match.startTime));
+    } else {
+      // Sensible default for upcoming time (next hour rounded to nearest 5 mins)
+      const nextSlot = new Date(Date.now() + 60 * 60 * 1000);
+      const y = nextSlot.getFullYear();
+      const m = String(nextSlot.getMonth() + 1).padStart(2, '0');
+      const d = String(nextSlot.getDate()).padStart(2, '0');
+      const h = String(nextSlot.getHours()).padStart(2, '0');
+      const min = String(Math.floor(nextSlot.getMinutes() / 5) * 5).padStart(2, '0');
+      setDuplicateStartTime(`${y}-${m}-${d}T${h}:${min}`);
+    }
+  };
+
+  const handleConfirmDuplicateMatch = () => {
+    if (!duplicatingTournament) return;
+    const match = duplicatingTournament;
+    const selectedTime = duplicateStartTime || getCurrentLocalDateTimeString();
+    const dtInfo = getMatchDateTimeStrings(selectedTime);
+
+    // Access Code Determination:
+    // If original is OFF: Duplicate is OFF + access_code NULL / ''
+    // If original is ON: Duplicate is ON + BRAND NEW generated code. Original code is NEVER reused.
+    const origRequiresCode = Boolean(
+      match.requiresAccessCode ||
+      (match as any).requires_access_code ||
+      match.requireAccessCode ||
+      (match as any).require_access_code ||
+      ((match.accessCode || (match as any).access_code) && String(match.accessCode || (match as any).access_code).trim().length > 0)
+    );
+
+    const newGeneratedAccessCode = origRequiresCode
+      ? ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
+      : '';
+
+    const duplicatePayload: Omit<Tournament, 'id' | 'createdAt' | 'filledSlots' | 'participants'> = {
+      title: match.title,
+      game: match.game,
+      category: match.category || match.game,
+      categoryId: match.categoryId,
+      bannerUrl: match.bannerUrl,
+      thumbnailUrl: match.thumbnailUrl || match.bannerUrl,
+      imageUrl: match.imageUrl || match.bannerUrl,
+      cardImage: match.cardImage || match.bannerUrl,
+      card_image: match.card_image || match.bannerUrl,
+      savedImageId: match.savedImageId,
+      matchType: match.matchType,
+      map: match.map,
+      entryFee: Number(match.entryFee || 0),
+      prizePool: Number(match.prizePool || 0),
+      perKillReward: Number(match.perKillReward ?? match.perKillPrize ?? 0),
+      perKillPrize: Number(match.perKillReward ?? match.perKillPrize ?? 0),
+      maxSlots: Number(match.maxSlots || match.maxParticipants || 48),
+      maxParticipants: Number(match.maxSlots || match.maxParticipants || 48),
+      startTime: selectedTime,
+      match_time: selectedTime,
+      matchSchedule: selectedTime,
+      schedule: selectedTime,
+      matchDate: dtInfo.matchDate,
+      match_date: dtInfo.matchDate,
+      dayOfWeek: dtInfo.dayOfWeek,
+      formattedTime: dtInfo.formattedTime,
+      status: 'upcoming',
+      isFeatured: Boolean(match.isFeatured),
+      requireAccessCode: origRequiresCode,
+      requiresAccessCode: origRequiresCode,
+      requires_access_code: origRequiresCode,
+      require_access_code: origRequiresCode,
+      isPrivate: origRequiresCode,
+      is_private: origRequiresCode,
+      accessCode: newGeneratedAccessCode,
+      access_code: origRequiresCode ? newGeneratedAccessCode : undefined,
+      roomId: '',
+      roomPassword: '',
+      isRoomReleased: false,
+      results_published: false,
+      rules: typeof match.rules === 'string' ? match.rules : (Array.isArray(match.rules) ? (match.rules as string[]).join('\n') : ''),
+      prizeDistribution: match.prizeDistribution || [],
+      organizer: match.organizer || 'WinX7 Official',
+      tags: match.tags || [],
+      version: '1.0'
+    };
+
+    onCreateTournament(duplicatePayload);
+    setDuplicatingTournament(null);
+  };
 
   const handleRefreshModalParticipants = async (tournamentId: string) => {
     if (!tournamentId) return;
@@ -543,6 +646,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   const [formPerKillReward, setFormPerKillReward] = useState<number | ''>(0);
   const [formStartTime, setFormStartTime] = useState<string>('');
   const [formMaxSlots, setFormMaxSlots] = useState<number | ''>(48);
+  const [formRequireAccessCode, setFormRequireAccessCode] = useState<boolean>(false);
   const [formAccessCode, setFormAccessCode] = useState('');
   const [formRules, setFormRules] = useState('');
   const [selectedRuleTemplateId, setSelectedRuleTemplateId] = useState<string>('');
@@ -664,11 +768,20 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
     const finalBannerUrl = (formBannerUrl && formBannerUrl.trim()) ? formBannerUrl.trim() : defaultCategoryBanner;
     const finalSavedImageId = formSavedImageId || undefined;
 
+    const finalRequireAccessCode = Boolean(formRequireAccessCode);
+    const finalAccessCode = finalRequireAccessCode
+      ? ((formAccessCode && formAccessCode.trim()) ? formAccessCode.trim() : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase()))
+      : '';
+
+    const selectedStartTime = formStartTime || getCurrentLocalDateTimeString();
+    const dtInfo = getMatchDateTimeStrings(selectedStartTime);
+
     if (editingTournament) {
       onUpdateTournament({
         ...editingTournament,
         title: (formTitle || 'UNTITLED MATCH').toUpperCase(),
         game: catName as GameCategory,
+        category: catName as GameCategory,
         categoryId: catId,
         bannerUrl: finalBannerUrl,
         savedImageId: finalSavedImageId,
@@ -677,10 +790,22 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
         entryFee: Number(formEntryFee || 0),
         prizePool: Number(formPrizePool || 0),
         perKillReward: pkr,
-        startTime: formStartTime || getCurrentLocalDateTimeString(),
+        perKillPrize: pkr,
+        startTime: selectedStartTime,
+        match_time: selectedStartTime,
+        matchSchedule: selectedStartTime,
+        schedule: selectedStartTime,
+        matchDate: dtInfo.matchDate,
+        match_date: dtInfo.matchDate,
+        dayOfWeek: dtInfo.dayOfWeek,
+        formattedTime: dtInfo.formattedTime,
         maxSlots: Number(formMaxSlots || 48),
-        accessCode: formAccessCode.trim(),
-        access_code: formAccessCode.trim(),
+        requireAccessCode: finalRequireAccessCode,
+        requiresAccessCode: finalRequireAccessCode,
+        requires_access_code: finalRequireAccessCode,
+        require_access_code: finalRequireAccessCode,
+        accessCode: finalAccessCode,
+        access_code: finalAccessCode,
         rules: formRules,
         prizeDistribution: finalPrizeDist
       });
@@ -689,6 +814,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       onCreateTournament({
         title: (formTitle || 'NEW MATCH').toUpperCase(),
         game: catName as GameCategory,
+        category: catName as GameCategory,
         categoryId: catId,
         bannerUrl: finalBannerUrl,
         savedImageId: finalSavedImageId,
@@ -697,10 +823,22 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
         entryFee: Number(formEntryFee || 0),
         prizePool: Number(formPrizePool || 0),
         perKillReward: pkr,
-        startTime: formStartTime || getCurrentLocalDateTimeString(),
+        perKillPrize: pkr,
+        startTime: selectedStartTime,
+        match_time: selectedStartTime,
+        matchSchedule: selectedStartTime,
+        schedule: selectedStartTime,
+        matchDate: dtInfo.matchDate,
+        match_date: dtInfo.matchDate,
+        dayOfWeek: dtInfo.dayOfWeek,
+        formattedTime: dtInfo.formattedTime,
         maxSlots: Number(formMaxSlots || 48),
-        accessCode: formAccessCode.trim(),
-        access_code: formAccessCode.trim(),
+        requireAccessCode: finalRequireAccessCode,
+        requiresAccessCode: finalRequireAccessCode,
+        requires_access_code: finalRequireAccessCode,
+        require_access_code: finalRequireAccessCode,
+        accessCode: finalAccessCode,
+        access_code: finalAccessCode,
         status: 'upcoming',
         isRoomReleased: false,
         rules: formRules,
@@ -713,6 +851,14 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   const handleOpenEditModal = (match: Tournament) => {
     setEditingTournament(match);
     setFormTitle(match.title);
+    const hasCode = Boolean(
+      match.requireAccessCode ??
+      match.requiresAccessCode ??
+      match.requires_access_code ??
+      match.require_access_code ??
+      ((match.accessCode || (match as any).access_code) && String(match.accessCode || (match as any).access_code).trim().length > 0)
+    );
+    setFormRequireAccessCode(hasCode);
     setFormAccessCode(match.accessCode || (match as any).access_code || '');
     setFormGame(match.game || (categoryOptions[0]?.name as GameCategory || 'FREE FIRE'));
     setFormSavedImageId(match.savedImageId || '');
@@ -857,7 +1003,8 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               setFormPerKillReward(0);
               setFormStartTime(getCurrentLocalDateTimeString());
               setFormMaxSlots(48);
-              setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase());
+              setFormRequireAccessCode(false);
+              setFormAccessCode('');
               if (matchRules && matchRules.length > 0) {
                 setSelectedRuleTemplateId(matchRules[0].id);
                 setFormRules(matchRules[0].rules);
@@ -1283,16 +1430,42 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 </div>
               )}
 
-              {/* Match Access Code Badge */}
-              {(match.accessCode || (match as any).access_code) && (
+              {/* Match Access Code Badge - Displayed and manageable ONLY when Access Code is ON */}
+              {Boolean(
+                match.requiresAccessCode ||
+                (match as any).requires_access_code ||
+                match.requireAccessCode ||
+                (match as any).require_access_code ||
+                ((match.accessCode || (match as any).access_code) && String(match.accessCode || (match as any).access_code).trim().length > 0)
+              ) && (
                 <div className="bg-amber-950/30 border border-amber-900/40 p-2 rounded-xl flex items-center justify-between text-xs text-amber-300 font-bold px-3">
                   <span className="flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-amber-400" />
                     <span>MATCH ACCESS CODE</span>
                   </span>
-                  <span className="font-mono text-[11px] text-amber-200 font-black tracking-wider bg-amber-900/40 px-2 py-0.5 rounded border border-amber-700/50">
-                    {match.accessCode || (match as any).access_code}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-amber-200 font-black tracking-wider bg-amber-900/40 px-2 py-0.5 rounded border border-amber-700/50">
+                      {match.accessCode || (match as any).access_code}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newCode = 'WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+                        onUpdateTournament({
+                          ...match,
+                          requireAccessCode: true,
+                          requiresAccessCode: true,
+                          requires_access_code: true,
+                          accessCode: newCode,
+                          access_code: newCode
+                        });
+                      }}
+                      className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded text-[10px] font-bold border border-amber-500/40 transition cursor-pointer"
+                      title="Regenerate Access Code"
+                    >
+                      Regenerate
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1309,7 +1482,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 </div>
               )}
 
-              {/* Inline Admin Action Center (Dashed divider, status selector, triggers) */}
+              {/* Admin Action Bar (Primary actions: Status, Release Room, Winners, Edit, Duplicate, Danger Zone toggle) */}
               <div className="border-t border-purple-950/50 pt-3 flex flex-wrap items-center justify-between gap-2.5 mt-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   {/* Quick Change Status Dropdown */}
@@ -1345,7 +1518,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           setActivePublishWinnersId(null);
                         }
                       }}
-                      className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 shadow-md ${
+                      className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 shadow-md cursor-pointer ${
                         match.isRoomReleased
                           ? 'bg-[#19143D] text-emerald-400 border border-emerald-800/40'
                           : 'bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-500 text-black shadow-amber-500/10'
@@ -1356,12 +1529,12 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     </button>
                   )}
 
-                   {/* Publish winners / Result Out List trigger */}
+                  {/* Publish winners / Result Out List trigger */}
                   {((match.status || '').toLowerCase() === 'finished' || (match.status || '').toLowerCase() === 'completed' || (match as any).results_published) ? (
                     <button
                       type="button"
                       onClick={() => setResultsListModalTournament(match)}
-                      className="px-3 py-1.5 rounded-xl text-[10.5px] font-black transition active:scale-95 flex items-center gap-1.5 border bg-gradient-to-r from-[#0d2a27] to-[#123834] text-emerald-300 border-emerald-500/50 hover:border-emerald-400 hover:text-emerald-200 shadow-lg shadow-emerald-950/40"
+                      className="px-3 py-1.5 rounded-xl text-[10.5px] font-black transition active:scale-95 flex items-center gap-1.5 border bg-gradient-to-r from-[#0d2a27] to-[#123834] text-emerald-300 border-emerald-500/50 hover:border-emerald-400 hover:text-emerald-200 shadow-lg shadow-emerald-950/40 cursor-pointer"
                     >
                       <Trophy className="w-4 h-4 text-amber-400" />
                       <span>Result Out List</span>
@@ -1373,7 +1546,6 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                         if (activePublishWinnersId === match.id) {
                           setActivePublishWinnersId(null);
                         } else {
-                          // Only open the panel, do NOT start publishing!
                           setActivePublishWinnersId(match.id);
                           const initMap = new Map<string, any>();
                           (match.participants || []).forEach((p, idx) => {
@@ -1419,7 +1591,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           setActiveReleaseRoomId(null);
                         }
                       }}
-                      className="px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 border bg-purple-900 hover:bg-purple-800 text-amber-300 border-purple-700/50 shadow-md shadow-purple-950/25"
+                      className="px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 border bg-purple-900 hover:bg-purple-800 text-amber-300 border-purple-700/50 shadow-md shadow-purple-950/25 cursor-pointer"
                     >
                       <Award className="w-3.5 h-3.5" />
                       <span>Publish Winners</span>
@@ -1427,49 +1599,89 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   )}
                 </div>
 
-                {/* Edit details and delete actions */}
-                <div className="flex items-center gap-1.5">
+                {/* Primary Actions: Edit Match & Create Duplicate Match */}
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <button
+                    type="button"
                     onClick={() => handleOpenEditModal(match)}
-                    className="p-1.5 rounded-lg bg-purple-950 hover:bg-purple-900 text-purple-200 border border-purple-800/40 transition active:scale-95"
+                    className="px-2.5 py-1.5 rounded-xl bg-[#19143D] hover:bg-[#231C54] text-purple-200 hover:text-white border border-purple-800/50 transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
                     title="Edit Match Details"
                   >
                     <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Edit</span>
                   </button>
 
                   <button
-                    onClick={() => onDeleteTournament(match.id)}
-                    className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-400 border border-rose-800/40 transition active:scale-95"
-                    title="Delete Match"
+                    type="button"
+                    onClick={() => handleOpenDuplicateModal(match)}
+                    className="px-2.5 py-1.5 rounded-xl bg-[#19143D] hover:bg-[#231C54] text-purple-200 hover:text-white border border-purple-800/50 transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
+                    title="Create Duplicate Match"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Duplicate Match</span>
                   </button>
-                  
-                  {/* Cancel & Refund Action */}
-                  {onCancelMatchAndRefund && (match.status !== 'completed' && match.status !== 'finished' && match.status !== 'cancelled') && (
-                    <button
-                      disabled={isCancellingMatch === match.id}
-                      onClick={async () => {
-                        if (confirm('Are you sure you want to cancel this match? Entry fees will be refunded to all joined players.')) {
-                          setIsCancellingMatch(match.id);
-                          try {
-                            await onCancelMatchAndRefund(match.id);
-                            alert('Match cancelled and refunds processed successfully.');
-                          } catch (err: any) {
-                            alert(err.message || 'Failed to cancel match.');
-                          } finally {
-                            setIsCancellingMatch(null);
-                          }
-                        }
-                      }}
-                      className="p-1.5 rounded-lg bg-orange-950/60 hover:bg-orange-900 text-orange-400 border border-orange-800/40 transition active:scale-95 disabled:opacity-50"
-                      title="Cancel Match & Refund"
-                    >
-                      <XCircle className={`w-3.5 h-3.5 ${isCancellingMatch === match.id ? 'animate-spin' : ''}`} />
-                    </button>
-                  )}
+
+                  {/* Danger Zone Dropdown Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedDangerZoneId(expandedDangerZoneId === match.id ? null : match.id)}
+                    className={`px-2 py-1.5 rounded-xl border transition active:scale-95 flex items-center gap-1 text-[10px] font-bold cursor-pointer ${
+                      expandedDangerZoneId === match.id
+                        ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                        : 'bg-[#140F2E] hover:bg-rose-950/40 text-purple-400 hover:text-rose-300 border-purple-900/50 hover:border-rose-800/40'
+                    }`}
+                    title="Destructive actions (Cancel, Delete)"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                    <span className="hidden sm:inline">Danger Zone</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${expandedDangerZoneId === match.id ? 'rotate-180 text-rose-300' : 'text-purple-400'}`} />
+                  </button>
                 </div>
               </div>
+
+              {/* DANGER ZONE / DESTRUCTIVE ACTIONS PANEL (Clearly separated) */}
+              {expandedDangerZoneId === match.id && (
+                <div className="mt-3 p-3 rounded-2xl bg-[#120B1C] border border-rose-900/50 space-y-2.5 animate-in slide-in-from-top-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-rose-400 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> Danger Zone / Destructive Actions
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedDangerZoneId(null)}
+                      className="p-1 text-purple-400 hover:text-white rounded-lg transition cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Cancel & Refund Action */}
+                    {onCancelMatchAndRefund && (match.status !== 'completed' && match.status !== 'finished' && match.status !== 'cancelled') && (
+                      <button
+                        type="button"
+                        onClick={() => setCancellingTournament(match)}
+                        className="px-3 py-1.5 rounded-xl bg-orange-950/80 hover:bg-orange-900 text-orange-300 border border-orange-700/50 text-[11px] font-extrabold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                        title="Cancel Match & Refund"
+                      >
+                        <XCircle className="w-3.5 h-3.5 text-orange-400" />
+                        <span>Cancel Match & Refund Players</span>
+                      </button>
+                    )}
+
+                    {/* Delete Match Action */}
+                    <button
+                      type="button"
+                      onClick={() => setDeletingTournament(match)}
+                      className="px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/50 text-[11px] font-extrabold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                      title="Permanently Delete Match"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Permanently Delete Match</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Inline Release Room Credentials Form Panel */}
               {activeReleaseRoomId === match.id && (
@@ -1638,86 +1850,154 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                         })}
                       </div>
 
-                      <div className="flex justify-end gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setActivePublishWinnersId(null)}
-                          className="text-xs text-purple-300 hover:text-white font-medium"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())}
-                          onClick={async () => {
-                            if (isSubmittingResults) return;
-                            
-                            // Validate: Ensure there is at least some result data
-                            const hasResults = participantResults.some(p => (p.rank || 0) > 0 || (p.kills || 0) > 0 || (p.prizeWon || 0) > 0);
-                            if (!hasResults && !confirm('No ranks/kills entered. Are you sure you want to publish empty results?')) {
-                              return;
-                            }
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-purple-900/40">
+                        <div className="text-[10px] text-purple-400">
+                          {currentUser?.role === 'staff' ? (
+                            <span className="text-amber-300 font-semibold flex items-center gap-1">
+                              <ShieldAlert className="w-3 h-3 text-amber-400" /> Staff Mode: Submitting will create a pending Result Request for Admin verification.
+                            </span>
+                          ) : (
+                            <span>Admin Mode: You can publish directly or submit for verification.</span>
+                          )}
+                        </div>
 
-                            // Indicate that publishing has started
-                            setIsSubmittingResults(match.id);
-                            
-                            const enriched = participantResults.map((p, idx) => {
-                              const details = resolveParticipantDetails(p, users);
-                              const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
-                              const curRank = Number(p.rank || idx + 1);
-                              const curKills = Number(p.kills || 0);
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setActivePublishWinnersId(null)}
+                            className="px-3 py-1.5 text-xs text-purple-300 hover:text-white font-medium"
+                          >
+                            Cancel
+                          </button>
 
-                              const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
-                              const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
+                          {/* Staff / Admin Submit for Verification Button */}
+                          {onSubmitResultForVerification && (
+                            <button
+                              type="button"
+                              disabled={isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())}
+                              onClick={async () => {
+                                if (isSubmittingResults) return;
+                                const hasResults = participantResults.some(p => (p.rank || 0) > 0 || (p.kills || 0) > 0 || (p.prizeWon || 0) > 0);
+                                if (!hasResults && !confirm('No ranks/kills entered. Submit empty result request?')) {
+                                  return;
+                                }
 
-                              const rankPrize = getPrizeForRank(curRank, match.prizeDistribution || []);
-                              const effectiveRankPrize = rankPrize > 0 ? rankPrize : (curRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
-                              const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
-                              const calculatedTotal = effectiveRankPrize + (curKills * perKillReward);
+                                setIsSubmittingResults(match.id);
+                                const enriched = participantResults.map((p, idx) => {
+                                  const details = resolveParticipantDetails(p, users);
+                                  const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
+                                  const curRank = Number(p.rank || idx + 1);
+                                  const curKills = Number(p.kills || 0);
+                                  const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
+                                  const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
+                                  const rankPrize = getPrizeForRank(curRank, match.prizeDistribution || []);
+                                  const effectiveRankPrize = rankPrize > 0 ? rankPrize : (curRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
+                                  const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
+                                  const calculatedTotal = effectiveRankPrize + (curKills * perKillReward);
+                                  const finalPrizeWon = existingPrizeNum > 0 ? existingPrizeNum : calculatedTotal;
 
-                              const finalPrizeWon = existingPrizeNum > 0 ? existingPrizeNum : calculatedTotal;
+                                  return {
+                                    ...p,
+                                    slotNumber: slotNo,
+                                    userId: details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || ''),
+                                    email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
+                                    inGameId: details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || ''),
+                                    inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
+                                    username: details.username || 'Player',
+                                    rank: curRank,
+                                    kills: curKills,
+                                    prizeWon: finalPrizeWon
+                                  };
+                                });
 
-                              return {
-                                ...p,
-                                slotNumber: slotNo,
-                                userId: details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || ''),
-                                email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
-                                inGameId: details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || ''),
-                                inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
-                                username: details.username || 'Player',
-                                rank: curRank,
-                                kills: curKills,
-                                prizeWon: finalPrizeWon
-                              };
-                            });
+                                try {
+                                  await onSubmitResultForVerification(match.id, enriched);
+                                  setActivePublishWinnersId(null);
+                                  alert('Match result submitted successfully! Pending Admin verification.');
+                                } catch (e: any) {
+                                  console.error('Submit for verification failed', e);
+                                  alert(`Submission failed: ${e?.message || 'Unknown error'}`);
+                                } finally {
+                                  setIsSubmittingResults(null);
+                                }
+                              }}
+                              className="px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-950 flex items-center gap-1"
+                            >
+                              <span>Submit for Admin Verification</span>
+                            </button>
+                          )}
 
-                            console.log('[TournamentManagement DEBUG] Submitting publish match results enriched array:', JSON.stringify(enriched, null, 2));
+                          {/* Admin Direct Publish Button */}
+                          {currentUser?.role !== 'staff' && (
+                            <button
+                              type="button"
+                              disabled={isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())}
+                              onClick={async () => {
+                                if (isSubmittingResults) return;
+                                
+                                const hasResults = participantResults.some(p => (p.rank || 0) > 0 || (p.kills || 0) > 0 || (p.prizeWon || 0) > 0);
+                                if (!hasResults && !confirm('No ranks/kills entered. Are you sure you want to publish empty results?')) {
+                                  return;
+                                }
 
-                            try {
-                              await onPublishMatchResults(match.id, enriched);
-                              setActivePublishWinnersId(null);
-                              // Instantly pop open the Results Out List modal so admin can review the completed match!
-                              setResultsListModalTournament({
-                                ...match,
-                                status: 'completed',
-                                results_published: true,
-                                participants: enriched
-                              });
-                            } catch (e: any) {
-                              console.error('Publish failed', e);
-                              alert(`Publish failed: ${e?.message || 'Unknown error'}`);
-                            } finally {
-                              setIsSubmittingResults(null);
-                            }
-                          }}
-                          className={`px-4 py-1.5 rounded-xl font-extrabold text-[11px] ${
-                            isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())
-                              ? 'bg-gray-500 text-gray-200 cursor-not-allowed'
-                              : 'bg-emerald-500 hover:bg-emerald-400 text-black'
-                          }`}
-                        >
-                          {isSubmittingResults === match.id ? 'Publishing...' : (['finished', 'completed'].includes((match.status || '').toLowerCase()) ? 'Published' : 'Publish Results & Complete Match')}
-                        </button>
+                                setIsSubmittingResults(match.id);
+                                
+                                const enriched = participantResults.map((p, idx) => {
+                                  const details = resolveParticipantDetails(p, users);
+                                  const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
+                                  const curRank = Number(p.rank || idx + 1);
+                                  const curKills = Number(p.kills || 0);
+
+                                  const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
+                                  const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
+
+                                  const rankPrize = getPrizeForRank(curRank, match.prizeDistribution || []);
+                                  const effectiveRankPrize = rankPrize > 0 ? rankPrize : (curRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
+                                  const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
+                                  const calculatedTotal = effectiveRankPrize + (curKills * perKillReward);
+
+                                  const finalPrizeWon = existingPrizeNum > 0 ? existingPrizeNum : calculatedTotal;
+
+                                  return {
+                                    ...p,
+                                    slotNumber: slotNo,
+                                    userId: details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || ''),
+                                    email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
+                                    inGameId: details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || ''),
+                                    inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
+                                    username: details.username || 'Player',
+                                    rank: curRank,
+                                    kills: curKills,
+                                    prizeWon: finalPrizeWon
+                                  };
+                                });
+
+                                try {
+                                  await onPublishMatchResults(match.id, enriched);
+                                  setActivePublishWinnersId(null);
+                                  setResultsListModalTournament({
+                                    ...match,
+                                    status: 'completed',
+                                    results_published: true,
+                                    participants: enriched
+                                  });
+                                } catch (e: any) {
+                                  console.error('Publish failed', e);
+                                  alert(`Publish failed: ${e?.message || 'Unknown error'}`);
+                                } finally {
+                                  setIsSubmittingResults(null);
+                                }
+                              }}
+                              className={`px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] ${
+                                isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())
+                                  ? 'bg-gray-500 text-gray-200 cursor-not-allowed'
+                                  : 'bg-emerald-500 hover:bg-emerald-400 text-black'
+                              }`}
+                            >
+                              {isSubmittingResults === match.id ? 'Publishing...' : (['finished', 'completed'].includes((match.status || '').toLowerCase()) ? 'Published' : 'Publish Directly')}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1912,27 +2192,75 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 />
               </div>
 
-              {/* Match Access Code */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[10px] uppercase font-bold text-purple-300">
-                    Match Access Code (Secret / Room Entry Key)
+              {/* Require Access Code (Optional Per Match) */}
+              <div className="bg-[#151030] border border-purple-800/40 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg border ${formRequireAccessCode ? 'bg-amber-400/10 border-amber-400/30 text-amber-400' : 'bg-purple-900/30 border-purple-800/30 text-purple-400'}`}>
+                      <Key className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <label htmlFor="toggle-require-access-code" className="text-xs font-black text-white cursor-pointer select-none">
+                          Require Access Code
+                        </label>
+                        <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${formRequireAccessCode ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-purple-900/40 text-purple-400'}`}>
+                          {formRequireAccessCode ? 'ON (Pass Protected)' : 'OFF (Normal Match)'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-purple-300/70">
+                        {formRequireAccessCode 
+                          ? 'Players must enter this unique secret code before joining this match.' 
+                          : 'Default: Anyone can join directly without entering an access code.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Toggle Switch */}
+                  <label className="relative inline-flex items-center cursor-pointer ml-3 shrink-0">
+                    <input
+                      id="toggle-require-access-code"
+                      type="checkbox"
+                      checked={formRequireAccessCode}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setFormRequireAccessCode(checked);
+                        if (checked && (!formAccessCode || formAccessCode.trim() === '')) {
+                          setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase());
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-purple-950 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-purple-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())}
-                    className="text-[10px] text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer"
-                  >
-                    Generate Random
-                  </button>
                 </div>
-                <input
-                  type="text"
-                  value={formAccessCode}
-                  onChange={(e) => setFormAccessCode(e.target.value)}
-                  placeholder="e.g. WINX7-K9Q2"
-                  className="w-full bg-[#1A1538] text-amber-300 text-xs font-mono p-2.5 rounded-xl border border-purple-800/50 focus:border-amber-400 focus:outline-none"
-                />
+
+                {/* Expanded Input only when Require Access Code is ON */}
+                {formRequireAccessCode && (
+                  <div className="pt-2 border-t border-purple-800/30 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[10px] uppercase font-bold text-amber-300">
+                        Secret Access Code (Unique Entry Key) <span className="text-amber-400">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())}
+                        className="text-[10px] text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer flex items-center gap-1"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" />
+                        <span>Generate Random</span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required={formRequireAccessCode}
+                      value={formAccessCode}
+                      onChange={(e) => setFormAccessCode(e.target.value)}
+                      placeholder="e.g. WINX7-K9Q2"
+                      className="w-full bg-[#1A1538] text-amber-300 text-xs font-mono font-bold tracking-wider p-2.5 rounded-xl border border-amber-700/50 focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Map & Start Time */}
@@ -2513,6 +2841,25 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Match Access Code Indicator if enabled */}
+            {Boolean(
+              detailsModalTournament.requiresAccessCode ||
+              (detailsModalTournament as any).requires_access_code ||
+              detailsModalTournament.requireAccessCode ||
+              (detailsModalTournament as any).require_access_code ||
+              ((detailsModalTournament.accessCode || (detailsModalTournament as any).access_code) && String(detailsModalTournament.accessCode || (detailsModalTournament as any).access_code).trim().length > 0)
+            ) && (
+              <div className="bg-amber-950/30 border border-amber-900/40 p-2.5 rounded-xl flex items-center justify-between text-xs text-amber-300 font-bold px-3">
+                <span className="flex items-center gap-1.5">
+                  <Key className="w-4 h-4 text-amber-400" />
+                  <span className="uppercase text-[11px] tracking-wider">Required Match Access Code:</span>
+                </span>
+                <span className="font-mono text-xs text-amber-200 font-black tracking-widest bg-amber-900/50 px-2.5 py-1 rounded-lg border border-amber-700/60">
+                  {detailsModalTournament.accessCode || (detailsModalTournament as any).access_code}
+                </span>
+              </div>
+            )}
 
             {/* Search Input */}
             <div className="relative">
@@ -3164,6 +3511,318 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 className="px-4 py-1.5 rounded-xl bg-purple-900/60 hover:bg-purple-800 text-white text-xs font-bold"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE DUPLICATE MATCH MODAL */}
+      {duplicatingTournament && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-lg bg-[#140F2E] border border-cyan-800/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-purple-800/50 bg-[#1A143D] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shadow-inner">
+                  <Copy className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white uppercase tracking-wider">
+                    Create Duplicate Match
+                  </h3>
+                  <p className="text-[11px] text-purple-300/70">
+                    Clones all settings, rules, banner, and fees into a fresh new match
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDuplicatingTournament(null)}
+                className="p-1.5 text-purple-400 hover:text-white rounded-xl bg-purple-900/40 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto max-h-[70vh] custom-scrollbar">
+              {/* Target Match Info */}
+              <div className="p-3.5 rounded-2xl bg-[#0E0A22] border border-purple-900/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase font-black text-cyan-400 tracking-wider">Original Match Source</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-900/60 text-purple-200 font-bold">
+                    {duplicatingTournament.game || duplicatingTournament.category}
+                  </span>
+                </div>
+                <h4 className="text-sm font-black text-white">{duplicatingTournament.title}</h4>
+                <div className="grid grid-cols-3 gap-2 pt-1 text-[11px]">
+                  <div className="p-2 rounded-xl bg-[#171138] border border-purple-900/40">
+                    <span className="text-[10px] text-purple-400 block">Entry Fee</span>
+                    <span className="font-extrabold text-amber-400">₹{duplicatingTournament.entryFee}</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-[#171138] border border-purple-900/40">
+                    <span className="text-[10px] text-purple-400 block">Prize Pool</span>
+                    <span className="font-extrabold text-emerald-400">₹{duplicatingTournament.prizePool}</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-[#171138] border border-purple-900/40">
+                    <span className="text-[10px] text-purple-400 block">Max Slots</span>
+                    <span className="font-extrabold text-cyan-400">{duplicatingTournament.maxSlots || 48}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Date & Time Selection */}
+              <div className="space-y-2">
+                <label className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-cyan-400" />
+                  <span>Select New Match Schedule (Date & Time)</span>
+                  <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={duplicateStartTime}
+                  onChange={(e) => setDuplicateStartTime(e.target.value)}
+                  className="w-full bg-[#18123C] border border-cyan-700/60 rounded-2xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 shadow-inner"
+                />
+
+                {/* Quick Shift buttons */}
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  <span className="text-[10px] uppercase font-bold text-purple-400">Quick set:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date(Date.now() + 60 * 60 * 1000);
+                      setDuplicateStartTime(formatForDateTimeLocal(now.toISOString()));
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-[#1E1748] hover:bg-cyan-900/40 text-cyan-300 text-[10px] font-bold border border-cyan-800/40 transition cursor-pointer"
+                  >
+                    +1 Hour
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date(Date.now() + 2 * 60 * 60 * 1000);
+                      setDuplicateStartTime(formatForDateTimeLocal(now.toISOString()));
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-[#1E1748] hover:bg-cyan-900/40 text-cyan-300 text-[10px] font-bold border border-cyan-800/40 transition cursor-pointer"
+                  >
+                    +2 Hours
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date(Date.now() + 24 * 60 * 60 * 1000);
+                      setDuplicateStartTime(formatForDateTimeLocal(now.toISOString()));
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-[#1E1748] hover:bg-cyan-900/40 text-cyan-300 text-[10px] font-bold border border-cyan-800/40 transition cursor-pointer"
+                  >
+                    Tomorrow Same Time
+                  </button>
+                </div>
+              </div>
+
+              {/* Duplicate Safety Guarantees Notice */}
+              <div className="p-3.5 rounded-2xl bg-[#0F0B24] border border-cyan-900/40 space-y-1.5 text-xs text-purple-200">
+                <p className="font-bold text-cyan-300 flex items-center gap-1.5 text-[11px] uppercase">
+                  <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" /> Clean Duplicate Guarantees:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-purple-300/80">
+                  <li>Creates a brand new match ID in Supabase.</li>
+                  <li>Participants, transactions, room IDs, and results are <strong>NOT</strong> copied.</li>
+                  {Boolean(
+                    duplicatingTournament.requiresAccessCode ||
+                    (duplicatingTournament as any).requires_access_code ||
+                    duplicatingTournament.requireAccessCode ||
+                    (duplicatingTournament as any).require_access_code ||
+                    ((duplicatingTournament.accessCode || (duplicatingTournament as any).access_code) && String(duplicatingTournament.accessCode || (duplicatingTournament as any).access_code).trim().length > 0)
+                  ) ? (
+                    <li className="text-amber-300 font-bold">
+                      Access Code is ON: A <strong>BRAND NEW unique Access Code</strong> will be generated automatically. Original code is never reused.
+                    </li>
+                  ) : (
+                    <li>Access Code is OFF: Remains open for public joins.</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="p-4 sm:p-5 border-t border-purple-800/40 bg-[#120D2A] flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDuplicatingTournament(null)}
+                className="px-4 py-2.5 rounded-xl bg-purple-900/40 hover:bg-purple-900/70 text-purple-200 text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDuplicateMatch}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-black text-xs uppercase tracking-wider transition active:scale-95 shadow-lg shadow-cyan-500/20 flex items-center gap-2 cursor-pointer"
+              >
+                <Copy className="w-4 h-4" />
+                <span>Create Duplicate Match</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CANCEL MATCH CONFIRMATION MODAL */}
+      {cancellingTournament && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-[#160E1E] border border-orange-700/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-orange-800/50 bg-[#20111A] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-orange-500/20 border border-orange-500/30 text-orange-400 flex items-center justify-center">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white uppercase tracking-wider">
+                    Cancel Match?
+                  </h3>
+                  <p className="text-[11px] text-orange-300/80">
+                    Entry fees will be refunded to all joined players
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCancellingTournament(null)}
+                className="p-1.5 text-orange-400 hover:text-white rounded-xl bg-orange-950/40 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-6 space-y-4">
+              <div className="p-3.5 rounded-2xl bg-[#0F0712] border border-orange-900/40 space-y-1.5">
+                <span className="text-[10px] uppercase font-black text-orange-400 tracking-wider">Target Match</span>
+                <h4 className="text-sm font-black text-white">{cancellingTournament.title}</h4>
+                <p className="text-xs text-purple-300">
+                  {cancellingTournament.game} • {formatStartTime(cancellingTournament.startTime)}
+                </p>
+                <div className="flex items-center justify-between pt-2 border-t border-purple-950 text-xs">
+                  <span className="text-purple-300">Joined Players:</span>
+                  <span className="font-extrabold text-amber-400">{cancellingTournament.filledSlots || (cancellingTournament.participants || []).length}</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-orange-950/40 border border-orange-800/40 text-xs text-orange-200 space-y-1">
+                <p className="font-extrabold text-orange-300 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" /> Warning
+                </p>
+                <p className="text-[11px] text-orange-200/90 leading-relaxed">
+                  Cancelling this match will update its status to CANCELLED and automatically refund the full entry fee (₹{cancellingTournament.entryFee}) back to each participant's wallet balance.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 border-t border-orange-900/40 bg-[#120815] flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setCancellingTournament(null)}
+                className="px-4 py-2.5 rounded-xl bg-purple-900/40 hover:bg-purple-900/70 text-purple-200 text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                disabled={isCancellingMatch === cancellingTournament.id}
+                onClick={async () => {
+                  if (!onCancelMatchAndRefund) return;
+                  const matchId = cancellingTournament.id;
+                  setIsCancellingMatch(matchId);
+                  try {
+                    await onCancelMatchAndRefund(matchId);
+                    setCancellingTournament(null);
+                  } catch (err: any) {
+                    alert(err.message || 'Failed to cancel match.');
+                  } finally {
+                    setIsCancellingMatch(null);
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-black text-xs uppercase tracking-wider transition active:scale-95 shadow-lg shadow-orange-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <XCircle className={`w-4 h-4 ${isCancellingMatch === cancellingTournament.id ? 'animate-spin' : ''}`} />
+                <span>{isCancellingMatch === cancellingTournament.id ? 'Refunding...' : 'Yes, Cancel & Refund'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE MATCH CONFIRMATION MODAL */}
+      {deletingTournament && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-[#180C14] border border-rose-700/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-rose-800/50 bg-[#240F1D] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white uppercase tracking-wider">
+                    Delete Match?
+                  </h3>
+                  <p className="text-[11px] text-rose-300/80">
+                    This action cannot be undone
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeletingTournament(null)}
+                className="p-1.5 text-rose-400 hover:text-white rounded-xl bg-rose-950/40 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-6 space-y-4">
+              <div className="p-3.5 rounded-2xl bg-[#0E050B] border border-rose-900/40 space-y-1.5">
+                <span className="text-[10px] uppercase font-black text-rose-400 tracking-wider">Target Match</span>
+                <h4 className="text-sm font-black text-white">{deletingTournament.title}</h4>
+                <p className="text-xs text-purple-300">
+                  {deletingTournament.game} • {formatStartTime(deletingTournament.startTime)}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-800/40 text-xs text-rose-200 space-y-1">
+                <p className="font-extrabold text-rose-300 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" /> Permanent Deletion
+                </p>
+                <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                  Are you sure you want to permanently delete this match? It will be removed from all lists and records. If players have joined, consider Cancelling and Refunding first instead.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 border-t border-rose-900/40 bg-[#12050D] flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeletingTournament(null)}
+                className="px-4 py-2.5 rounded-xl bg-purple-900/40 hover:bg-purple-900/70 text-purple-200 text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteTournament(deletingTournament.id);
+                  setDeletingTournament(null);
+                }}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase tracking-wider transition active:scale-95 shadow-lg shadow-rose-600/30 flex items-center gap-2 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Permanently Delete</span>
               </button>
             </div>
           </div>

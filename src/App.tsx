@@ -22,12 +22,18 @@ import { ReportsAnalytics } from './components/reports/ReportsAnalytics';
 import { StaffManagement } from './components/staff/StaffManagement';
 import { SystemSettings } from './components/settings/SystemSettings';
 import { SavedImagesManagement } from './components/images/SavedImagesManagement';
+import { ResultRequestsManagement } from './components/results/ResultRequestsManagement';
 
 import { supabase } from './services/supabase';
 
 // Supabase Database Service
 import {
   subscribeCollection,
+  fetchResultRequestsFromSupabase,
+  submitResultRequestToSupabase,
+  approveAndPublishResultRequestInSupabase,
+  rejectResultRequestInSupabase,
+  subscribeToResultRequests,
   fetchTransactionsFromSupabase,
   seedInitialFirestoreDataIfEmpty,
   createTournamentInFirestore,
@@ -35,6 +41,7 @@ import {
   deleteTournamentFromFirestore,
   normalizeTournamentDoc,
   normalizeUserDoc,
+  resolveUserDisplayName,
   updateUserStatusInFirestore,
   updateUserWalletBalanceInFirestore,
   adjustUserWalletBalanceInFirestore,
@@ -118,6 +125,79 @@ function MainPortalContent() {
   const [tournaments, setTournaments] = useState<Tournament[]>(initialTournaments);
   const [categories, setCategories] = useState<MatchCategory[]>(initialCategories);
   const [rawTransactions, setRawTransactions] = useState<WalletTransaction[]>(initialTransactions);
+  const [resultRequests, setResultRequests] = useState<any[]>([]);
+
+  // Realtime subscription for Result Requests
+  useEffect(() => {
+    const unsub = subscribeToResultRequests((freshRequests) => {
+      setResultRequests(freshRequests);
+    });
+    return () => unsub();
+  }, []);
+
+  const pendingResultRequestsCount = useMemo(() => {
+    return resultRequests.filter((r) => r.status === 'PENDING').length;
+  }, [resultRequests]);
+
+  const handleApproveAndPublishResultRequest = useCallback(async (requestId: string) => {
+    if (!currentUser) throw new Error('You must be logged in as an Admin.');
+    await approveAndPublishResultRequestInSupabase(requestId, {
+      uid: currentUser.id || currentUser.uid || 'Admin',
+      displayName: currentUser.displayName || 'Admin',
+      role: currentUser.role
+    });
+    const fresh = await fetchResultRequestsFromSupabase();
+    setResultRequests(fresh);
+  }, [currentUser]);
+
+  const handleRejectResultRequest = useCallback(async (requestId: string, reason: string) => {
+    if (!currentUser) throw new Error('You must be logged in as an Admin.');
+    await rejectResultRequestInSupabase(requestId, reason, {
+      uid: currentUser.id || currentUser.uid || 'Admin',
+      displayName: currentUser.displayName || 'Admin',
+      role: currentUser.role
+    });
+    const fresh = await fetchResultRequestsFromSupabase();
+    setResultRequests(fresh);
+  }, [currentUser]);
+
+  const handleSubmitResultForVerification = useCallback(async (
+    matchId: string,
+    participantResults: Participant[],
+    proofNotes?: string,
+    evidenceUrls?: string[]
+  ) => {
+    if (!currentUser) throw new Error('You must be logged in.');
+    const targetMatch: any = tournaments.find((t) => t.id === matchId) || {};
+    const matchTitle = targetMatch.title || targetMatch.gameName || 'Match Result';
+
+    await submitResultRequestToSupabase({
+      matchId,
+      matchTitle,
+      matchCategory: targetMatch.category || targetMatch.gameName,
+      matchType: targetMatch.matchType || targetMatch.mode,
+      map: targetMatch.map,
+      entryFee: targetMatch.entryFee || 0,
+      prizePool: targetMatch.prizePool || 0,
+      matchDateTime: targetMatch.startTime || targetMatch.start_time || targetMatch.matchDate,
+      matchStatus: targetMatch.status || 'live',
+      submittedByStaffId: currentUser.id || currentUser.uid || 'Staff',
+      submittedByStaffName: currentUser.displayName || 'Staff Member',
+      submittedByStaffEmail: currentUser.email,
+      participantCount: participantResults.length,
+      participantResults: participantResults as any,
+      resultSummary: {
+        winnerName: participantResults.find((p) => p.rank === 1)?.username || participantResults[0]?.username,
+        totalKills: participantResults.reduce((s, p) => s + (p.kills || 0), 0),
+        totalPrizeDistributed: participantResults.reduce((s, p) => s + (p.prizeWon || 0), 0)
+      },
+      evidenceUrls,
+      proofNotes
+    });
+
+    const fresh = await fetchResultRequestsFromSupabase();
+    setResultRequests(fresh);
+  }, [currentUser, tournaments]);
 
   const refreshDeposits = useCallback(async () => {
     try {
@@ -414,26 +494,24 @@ function MainPortalContent() {
         ''
       );
 
-      let userPhone = String(item.userPhone || item.phone || item.mobile || item.phoneNumber || item.phone_number || '');
-      let userEmail = String(item.userEmail || item.email || item.user_email || '');
-      let fullName = String(item.fullName || item.full_name || item.name || item.senderName || item.sender_name || '');
+      const resolvedUser = resolveUserDisplayName(item, users);
+      let userPhone = String(item.userPhone || item.phone || item.mobile || item.phoneNumber || item.phone_number || (resolvedUser.phone !== 'N/A' ? resolvedUser.phone : ''));
+      let userEmail = String(item.userEmail || item.email || item.user_email || (resolvedUser.email !== 'N/A' ? resolvedUser.email : ''));
+      let fullName = String(item.fullName || item.full_name || item.name || item.senderName || item.sender_name || (resolvedUser.username !== 'User' ? resolvedUser.username : ''));
 
-      const matchingUser = (userId && usersMap.size > 0) ? usersMap.get(userId) : null;
+      const matchingUser = (userId && usersMap.size > 0) ? usersMap.get(userId) : (resolvedUser.matchedUser || null);
       if (matchingUser) {
         if (!userPhone) userPhone = matchingUser.phone || '';
         if (!userEmail) userEmail = matchingUser.email || '';
       }
 
-      let username = String(
-        item.username ||
-        item.user_name ||
-        item.displayName ||
-        item.display_name ||
-        item.name ||
-        (matchingUser ? (matchingUser.username || matchingUser.inGameName || matchingUser.displayName) : '') ||
-        (userEmail ? userEmail.split('@')[0] : '') ||
-        (userId ? `User (${userId.slice(0, 4)})` : 'Player')
-      );
+      let username = resolvedUser.username;
+      if (!username || username === 'User' || username === 'Player') {
+        username =
+          (matchingUser ? (matchingUser.username || matchingUser.inGameName || matchingUser.displayName) : '') ||
+          (userEmail ? userEmail.split('@')[0] : '') ||
+          (userId && userId.length > 8 ? `User (${userId.slice(0, 6)})` : (userId || 'User'));
+      }
 
       const upiId = extractUpiId(item, matchingUser);
 
@@ -1820,6 +1898,7 @@ function MainPortalContent() {
           closeSidebar={() => setMobileDrawerOpen(false)}
           pendingDepositsCount={pendingDepositsCount}
           pendingWithdrawalsCount={pendingWithdrawalsCount}
+          pendingResultRequestsCount={pendingResultRequestsCount}
         />
 
         {/* Tab Content Display View */}
@@ -1860,6 +1939,8 @@ function MainPortalContent() {
               onDeleteTournament={handleDeleteTournament}
               onReleaseRoomCredentials={handleReleaseRoomCredentials}
               onPublishMatchResults={handlePublishMatchResults}
+              onSubmitResultForVerification={handleSubmitResultForVerification}
+              onNavigateToResultRequests={() => setActiveTab('result-requests')}
               onCancelMatchAndRefund={handleCancelMatchAndRefund}
               onSaveCategory={handleSaveCategory}
               onDeleteCategory={handleDeleteCategory}
@@ -1868,6 +1949,19 @@ function MainPortalContent() {
               openCreateModalDirectly={openCreateMatchDirectly}
               savedImages={savedImages}
               onNavigateToSavedImages={() => setActiveTab('saved-images')}
+            />
+          )}
+
+          {activeTab === 'result-requests' && (
+            <ResultRequestsManagement
+              requests={resultRequests}
+              tournaments={tournaments}
+              onApproveAndPublish={handleApproveAndPublishResultRequest}
+              onRejectRequest={handleRejectResultRequest}
+              onRefresh={async () => {
+                const fresh = await fetchResultRequestsFromSupabase();
+                setResultRequests(fresh);
+              }}
             />
           )}
 
@@ -1966,6 +2060,7 @@ function MainPortalContent() {
 
           {activeTab === 'staff' && (
             <StaffManagement
+              users={users}
               staffList={staffList}
               onAddStaff={handleAddStaff}
               onUpdateStaffStatus={handleUpdateStaffStatus}

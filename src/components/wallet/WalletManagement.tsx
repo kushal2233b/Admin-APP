@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { WalletTransaction, TransactionType, TransactionStatus } from '../../types';
+import { WalletTransaction, TransactionType, TransactionStatus, AppUser } from '../../types';
+import { resolveUserDisplayName } from '../../services/supabaseService';
 import {
   Wallet,
   ArrowDownRight,
@@ -22,6 +23,7 @@ import {
 
 interface WalletManagementProps {
   transactions: WalletTransaction[];
+  users?: AppUser[];
   onApproveTransaction: (txId: string) => void;
   onRejectTransaction: (txId: string, reason: string) => void;
   onRefundTransaction?: (tx: WalletTransaction) => void;
@@ -31,6 +33,7 @@ interface WalletManagementProps {
 
 export const WalletManagement: React.FC<WalletManagementProps> = ({
   transactions,
+  users = [],
   onApproveTransaction,
   onRejectTransaction,
   onRefundTransaction,
@@ -65,7 +68,11 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
   const filteredList = safeTransactions.filter((t) => {
     if (!t) return false;
     const q = (searchQuery || '').toLowerCase();
+    const resolved = resolveUserDisplayName(t, users);
     const matchesSearch =
+      (resolved.username || '').toLowerCase().includes(q) ||
+      (resolved.inGameName || '').toLowerCase().includes(q) ||
+      (resolved.email || '').toLowerCase().includes(q) ||
       (t.username || '').toLowerCase().includes(q) ||
       (t.referenceId || '').toLowerCase().includes(q) ||
       (t.upiId ? t.upiId.toLowerCase().includes(q) : false);
@@ -242,7 +249,9 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
               No transactions match your search and filter criteria.
             </div>
           ) : (
-            filteredList.map((tx) => (
+            filteredList.map((tx) => {
+              const userDisplay = resolveUserDisplayName(tx, users);
+              return (
               <div
                 key={tx.id}
                 className="p-3.5 sm:p-4 rounded-2xl bg-[#15112E] border border-purple-800/40 hover:border-purple-600 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg"
@@ -265,7 +274,12 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
 
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="font-extrabold text-sm text-white">{tx.username}</h3>
+                      <h3 className="font-extrabold text-sm text-white">
+                        {userDisplay.username}
+                        {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
+                          <span className="text-xs text-purple-300 font-normal ml-1">({userDisplay.inGameName})</span>
+                        ) : null}
+                      </h3>
                       <span
                         className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
                           tx.status === 'pending'
@@ -391,7 +405,8 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
                   )}
                 </div>
               </div>
-            ))
+            );
+            })
           )}
         </div>
       ) : (

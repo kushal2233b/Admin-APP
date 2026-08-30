@@ -5,6 +5,7 @@ import {
   WalletTransaction
 } from '../../types';
 import { resolveParticipantDetails, getMatchBannerImage } from '../tournaments/TournamentManagement';
+import { resolveUserDisplayName } from '../../services/supabaseService';
 import {
   Users,
   Trophy,
@@ -82,14 +83,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   // Flatten match registrations across tournaments
   const recentRegistrations = safeTournaments.flatMap((t) =>
     t ? (t.participants || []).map((p) => {
-      const { email, gameUid, gameIgn, username } = resolveParticipantDetails(p, safeUsers);
+      const { email, inGameId, inGameName, username } = resolveUserDisplayName(p, safeUsers);
       return {
         tournamentTitle: t.title || 'Untitled Match',
         game: t.game || 'Free Fire',
         entryFee: t.entryFee || 0,
         username,
-        inGameName: gameIgn !== 'N/A' ? gameIgn : username,
-        inGameId: gameUid
+        inGameName: inGameName !== 'N/A' ? inGameName : username,
+        inGameId
       };
     }) : []
   ).slice(0, 5);
@@ -294,34 +295,42 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             {recentDeposits.length === 0 ? (
               <p className="text-xs text-purple-400 text-center py-6">No recent deposits recorded.</p>
             ) : (
-              recentDeposits.map((tx) => (
-                <div
-                  key={tx.id}
-                  onClick={() => setActiveTab('deposits')}
-                  className="p-3 rounded-xl bg-[#1A1538] border border-purple-800/30 flex items-center justify-between hover:border-amber-400/40 transition cursor-pointer"
-                >
-                  <div>
-                    <p className="text-xs font-extrabold text-white">{tx.username}</p>
-                    <p className="text-[10px] text-purple-300">
-                      Method: {tx.paymentMethod} • Ref: {tx.referenceId}
-                    </p>
+              recentDeposits.map((tx) => {
+                const userDisplay = resolveUserDisplayName(tx, safeUsers);
+                return (
+                  <div
+                    key={tx.id}
+                    onClick={() => setActiveTab('deposits')}
+                    className="p-3 rounded-xl bg-[#1A1538] border border-purple-800/30 flex items-center justify-between hover:border-amber-400/40 transition cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-xs font-extrabold text-white">
+                        {userDisplay.username}
+                        {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
+                          <span className="text-[11px] text-purple-300 font-normal ml-1">({userDisplay.inGameName})</span>
+                        ) : null}
+                      </p>
+                      <p className="text-[10px] text-purple-300">
+                        Method: {tx.paymentMethod} • Ref: {tx.referenceId}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-extrabold text-emerald-400 text-sm">+₹{tx.amount}</span>
+                      <span
+                        className={`block text-[9px] font-bold uppercase ${
+                          tx.status === 'approved'
+                            ? 'text-emerald-400'
+                            : tx.status === 'pending'
+                            ? 'text-amber-300'
+                            : 'text-rose-400'
+                        }`}
+                      >
+                        {tx.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-extrabold text-emerald-400 text-sm">+₹{tx.amount}</span>
-                    <span
-                      className={`block text-[9px] font-bold uppercase ${
-                        tx.status === 'approved'
-                          ? 'text-emerald-400'
-                          : tx.status === 'pending'
-                          ? 'text-amber-300'
-                          : 'text-rose-400'
-                      }`}
-                    >
-                      {tx.status}
-                    </span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -344,34 +353,42 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             {recentWithdrawals.length === 0 ? (
               <p className="text-xs text-purple-400 text-center py-6">No recent withdrawals recorded.</p>
             ) : (
-              recentWithdrawals.map((tx) => (
-                <div
-                  key={tx.id}
-                  onClick={() => setActiveTab('withdrawals')}
-                  className="p-3 rounded-xl bg-[#1A1538] border border-purple-800/30 flex items-center justify-between hover:border-amber-400/40 transition cursor-pointer"
-                >
-                  <div>
-                    <p className="text-xs font-extrabold text-white">{tx.username}</p>
-                    <p className="text-[10px] text-purple-300">
-                      Req ID: {tx.withdrawalRequestId || tx.referenceId || tx.id} • UPI: {tx.upiId || 'Not Provided'}
-                    </p>
+              recentWithdrawals.map((tx) => {
+                const userDisplay = resolveUserDisplayName(tx, safeUsers);
+                return (
+                  <div
+                    key={tx.id}
+                    onClick={() => setActiveTab('withdrawals')}
+                    className="p-3 rounded-xl bg-[#1A1538] border border-purple-800/30 flex items-center justify-between hover:border-amber-400/40 transition cursor-pointer"
+                  >
+                    <div>
+                      <p className="text-xs font-extrabold text-white">
+                        {userDisplay.username}
+                        {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
+                          <span className="text-[11px] text-purple-300 font-normal ml-1">({userDisplay.inGameName})</span>
+                        ) : null}
+                      </p>
+                      <p className="text-[10px] text-purple-300">
+                        Req ID: {tx.withdrawalRequestId || tx.referenceId || tx.id} • UPI: {tx.upiId || 'Not Provided'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-extrabold text-white text-sm">-₹{tx.amount}</span>
+                      <span
+                        className={`block text-[9px] font-bold uppercase ${
+                          tx.status === 'approved'
+                            ? 'text-emerald-400'
+                            : tx.status === 'pending'
+                            ? 'text-amber-300'
+                            : 'text-rose-400'
+                        }`}
+                      >
+                        {tx.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-extrabold text-white text-sm">-₹{tx.amount}</span>
-                    <span
-                      className={`block text-[9px] font-bold uppercase ${
-                        tx.status === 'approved'
-                          ? 'text-emerald-400'
-                          : tx.status === 'pending'
-                          ? 'text-amber-300'
-                          : 'text-rose-400'
-                      }`}
-                    >
-                      {tx.status}
-                    </span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -401,7 +418,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   className="p-3 rounded-xl bg-[#1A1538] border border-purple-800/30 flex items-center justify-between hover:border-amber-400/40 transition cursor-pointer"
                 >
                   <div>
-                    <p className="text-xs font-extrabold text-white">{reg.username} ({reg.inGameName})</p>
+                    <p className="text-xs font-extrabold text-white">
+                      {reg.username}
+                      {reg.inGameName && reg.inGameName !== 'N/A' && reg.inGameName !== reg.username ? (
+                        <span className="text-[11px] text-purple-300 font-normal ml-1">({reg.inGameName})</span>
+                      ) : null}
+                    </p>
                     <p className="text-[10px] text-purple-300 truncate max-w-[180px]">
                       {reg.tournamentTitle}
                     </p>
