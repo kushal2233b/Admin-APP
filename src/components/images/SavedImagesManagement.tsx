@@ -160,51 +160,51 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in pb-16 md:pb-6">
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#0F0D24] border border-purple-900/40 shadow-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#141215] border border-[#29252A] shadow-xl">
         <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-purple-600/30 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-md shrink-0">
+          <div className="w-12 h-12 rounded-2xl bg-[#1B181C] border border-[#C9A34E]/30 flex items-center justify-center text-[#C9A34E] shadow-md shrink-0">
             <ImageIcon className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase">
+              <h1 className="text-lg sm:text-xl font-black text-[#F5F5F5] tracking-wide uppercase">
                 Saved Images Library
               </h1>
-              <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 rounded-md border border-amber-500/40">
+              <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[#C9A34E]/20 text-[#C9A34E] rounded-md border border-[#C9A34E]/30">
                 Supabase Storage
               </span>
             </div>
-            <p className="text-xs text-purple-300/80 mt-0.5">
+            <p className="text-xs text-[#B0ACB0] mt-0.5">
               Upload and manage reusable match-card images. Reusable across any number of matches.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-bold text-purple-200 bg-[#161233] px-3.5 py-2 rounded-xl border border-purple-800/40 shrink-0 self-start sm:self-auto">
-          <Layers className="w-4 h-4 text-amber-400" />
+        <div className="flex items-center gap-2 text-xs font-bold text-[#B0ACB0] bg-[#1B181C] px-3.5 py-2 rounded-xl border border-[#29252A] shrink-0 self-start sm:self-auto">
+          <Layers className="w-4 h-4 text-[#C9A34E]" />
           <span>{savedImages.length} Reusable Images</span>
         </div>
       </div>
 
       {/* Notifications */}
       {successMessage && (
-        <div className="p-3.5 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-2 shadow-lg animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className="p-3.5 rounded-xl bg-[#350A12]/80 border border-[#C9A34E]/40 text-[#C9A34E] text-xs font-bold flex items-center gap-2 shadow-lg animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-[#C9A34E] shrink-0" />
           <span>{successMessage}</span>
         </div>
       )}
 
       {errorMessage && (
-        <div className="p-3.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center gap-2 shadow-lg animate-in fade-in">
-          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+        <div className="p-3.5 rounded-xl bg-[#350A12] border border-[#E21B36]/40 text-[#FF3048] text-xs font-bold flex items-center gap-2 shadow-lg animate-in fade-in">
+          <AlertCircle className="w-4 h-4 text-[#FF3048] shrink-0" />
           <span>{errorMessage}</span>
         </div>
       )}
 
       {/* Upload New Image Card */}
-      <div className="bg-[#120E2E] border border-purple-900/40 rounded-2xl p-5 shadow-lg">
-        <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2 mb-4 pb-2 border-b border-purple-900/30">
-          <Plus className="w-4 h-4 text-amber-400" />
+      <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 shadow-lg">
+        <h2 className="text-sm font-black text-[#F5F5F5] uppercase tracking-wider flex items-center gap-2 mb-4 pb-2 border-b border-[#29252A]">
+          <Plus className="w-4 h-4 text-[#C9A34E]" />
           <span>Upload & Save Match-Card Image</span>
         </h2>
 
@@ -212,15 +212,15 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
             {/* File Upload / Preview Box */}
             <div className="md:col-span-6 flex flex-col justify-center">
-              <label className="block text-xs font-bold text-purple-200 uppercase tracking-wider mb-1.5">
+              <label className="block text-xs font-bold text-[#B0ACB0] uppercase tracking-wider mb-1.5">
                 Select Image File
               </label>
 
               <div
                 className={`relative border-2 border-dashed rounded-2xl p-4 flex flex-col items-center justify-center transition cursor-pointer min-h-[160px] ${
                   previewUrl
-                    ? 'border-amber-500/50 bg-black/40'
-                    : 'border-purple-800/60 hover:border-amber-400/60 bg-[#0A081D]/60 hover:bg-[#0A081D]'
+                    ? 'border-[#C9A34E]/60 bg-black/40'
+                    : 'border-[#29252A] hover:border-[#C9A34E]/60 bg-[#171418] hover:bg-[#1B181C]'
                 }`}
                 onClick={() => document.getElementById('match-card-file-input')?.click()}
               >
@@ -241,18 +241,18 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
                       referrerPolicy="no-referrer"
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                      <span className="text-xs font-black text-amber-300 uppercase tracking-wider bg-black/80 px-3 py-1.5 rounded-lg border border-amber-500/40">
+                      <span className="text-xs font-black text-[#C9A34E] uppercase tracking-wider bg-black/80 px-3 py-1.5 rounded-lg border border-[#C9A34E]/30">
                         Click to change image
                       </span>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center p-4">
-                    <div className="w-10 h-10 rounded-full bg-purple-900/40 text-amber-400 flex items-center justify-center mx-auto mb-2 border border-purple-800/50">
+                    <div className="w-10 h-10 rounded-full bg-[#1B181C] text-[#C9A34E] flex items-center justify-center mx-auto mb-2 border border-[#29252A]">
                       <Upload className="w-5 h-5" />
                     </div>
-                    <p className="text-xs font-extrabold text-white">Click or drag & drop image here</p>
-                    <p className="text-[10px] text-purple-300/70 mt-1">PNG, JPG, WEBP • Recommended 16:9 ratio</p>
+                    <p className="text-xs font-extrabold text-[#F5F5F5]">Click or drag & drop image here</p>
+                    <p className="text-[10px] text-[#777278] mt-1">PNG, JPG, WEBP • Recommended 16:9 ratio</p>
                   </div>
                 )}
               </div>
@@ -262,20 +262,20 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
             <div className="md:col-span-6 flex flex-col justify-between space-y-4">
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-bold text-purple-200 uppercase tracking-wider mb-1.5">
-                    Image Simple Name <span className="text-amber-400">*</span>
+                  <label className="block text-xs font-bold text-[#B0ACB0] uppercase tracking-wider mb-1.5">
+                    Image Simple Name <span className="text-[#C9A34E]">*</span>
                   </label>
                   <input
                     type="text"
                     placeholder="e.g. BR Survivor, BR Elites, Clash Squad, Lone Wolf"
                     value={imageName}
                     onChange={(e) => setImageName(e.target.value)}
-                    className="w-full bg-[#0A081D] border border-purple-800/60 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-purple-400/40 focus:outline-none focus:border-amber-400"
+                    className="w-full bg-[#171418] border border-[#29252A] rounded-xl px-3.5 py-2.5 text-xs text-[#F5F5F5] placeholder-[#777278] focus:outline-none focus:border-[#C9A34E]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-purple-200 uppercase tracking-wider mb-1.5">
+                  <label className="block text-xs font-bold text-[#B0ACB0] uppercase tracking-wider mb-1.5">
                     Or Paste Direct Image Link (URL)
                   </label>
                   <input
@@ -283,9 +283,9 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
                     placeholder="https://example.com/match-artwork.jpg"
                     value={directUrl}
                     onChange={(e) => handleDirectUrlChange(e.target.value)}
-                    className="w-full bg-[#0A081D] border border-purple-800/60 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-purple-400/40 focus:outline-none focus:border-amber-400"
+                    className="w-full bg-[#171418] border border-[#29252A] rounded-xl px-3.5 py-2.5 text-xs text-[#F5F5F5] placeholder-[#777278] focus:outline-none focus:border-[#C9A34E]"
                   />
-                  <p className="text-[10px] text-purple-300/60 mt-1">
+                  <p className="text-[10px] text-[#777278] mt-1">
                     Upload an image file or paste a web URL directly.
                   </p>
                 </div>
@@ -297,8 +297,8 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
                   disabled={isUploading || (!previewUrl && !directUrl.trim()) || !imageName.trim()}
                   className={`w-full py-3 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition ${
                     isUploading || (!previewUrl && !directUrl.trim()) || !imageName.trim()
-                      ? 'bg-purple-950/60 text-purple-400/50 border border-purple-900/40 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 text-black hover:brightness-110 active:scale-[0.98]'
+                      ? 'bg-[#0D0B0D]/60 text-[#777278]/50 border border-[#29252A] cursor-not-allowed'
+                      : 'bg-gradient-to-r from-[#C9A34E] via-amber-400 to-[#C9A34E] text-black hover:brightness-110 active:scale-[0.98]'
                   }`}
                 >
                   {isUploading ? (
@@ -323,34 +323,34 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-black text-white uppercase tracking-wider">
+            <h2 className="text-sm font-black text-[#F5F5F5] uppercase tracking-wider">
               Saved Match-Card Images
             </h2>
-            <span className="px-2 py-0.5 rounded-full bg-purple-900/60 text-purple-200 text-[10px] font-black">
+            <span className="px-2 py-0.5 rounded-full bg-[#1B181C] text-[#B0ACB0] text-[10px] font-black border border-[#29252A]">
               {filteredImages.length}
             </span>
           </div>
 
           {/* Search */}
           <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 text-purple-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-[#777278] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search saved images..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0F0D24] border border-purple-900/50 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-purple-400/50 focus:outline-none focus:border-amber-400"
+              className="w-full bg-[#171418] border border-[#29252A] rounded-xl pl-9 pr-3 py-1.5 text-xs text-[#F5F5F5] placeholder-[#777278] focus:outline-none focus:border-[#C9A34E]"
             />
           </div>
         </div>
 
         {filteredImages.length === 0 ? (
-          <div className="bg-[#120E2E] border border-purple-900/30 rounded-2xl p-10 text-center flex flex-col items-center justify-center">
-            <div className="w-12 h-12 rounded-2xl bg-purple-900/30 border border-purple-800/40 text-purple-300 flex items-center justify-center mb-3">
+          <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-10 text-center flex flex-col items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-[#1B181C] border border-[#29252A] text-[#B0ACB0] flex items-center justify-center mb-3">
               <ImageIcon className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-extrabold text-white uppercase">No Saved Images Found</h3>
-            <p className="text-xs text-purple-300/70 max-w-sm mt-1">
+            <h3 className="text-sm font-extrabold text-[#F5F5F5] uppercase">No Saved Images Found</h3>
+            <p className="text-xs text-[#777278] max-w-sm mt-1">
               {searchQuery
                 ? 'No saved images match your search query.'
                 : 'Upload your first match-card image above. Once saved, it will be available instantly in the Create Match form.'}
@@ -366,7 +366,7 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
               return (
                 <div
                   key={img.id}
-                  className="bg-[#120E2E] border border-purple-900/40 rounded-2xl overflow-hidden flex flex-col justify-between hover:border-purple-700/60 transition-all shadow-md group"
+                  className="bg-[#141215] border border-[#29252A] rounded-2xl overflow-hidden flex flex-col justify-between hover:border-[#C9A34E]/50 transition-all shadow-md group"
                 >
                   {/* Thumbnail */}
                   <div className="relative w-full h-36 bg-black/60 overflow-hidden">
@@ -377,10 +377,10 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
                       referrerPolicy="no-referrer"
                       onError={(e) => handleImageFallback(e, img.name)}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#120E2E] via-transparent to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#141215] via-transparent to-transparent" />
                     
                     {matchCount > 0 && (
-                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-amber-500/90 text-black text-[9px] font-black uppercase tracking-wider shadow">
+                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-[#C9A34E] text-black text-[9px] font-black uppercase tracking-wider shadow">
                         Used in {matchCount} {matchCount === 1 ? 'match' : 'matches'}
                       </span>
                     )}
@@ -389,20 +389,20 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
                   {/* Card Content */}
                   <div className="p-3.5 space-y-3 flex-1 flex flex-col justify-between">
                     <div>
-                      <h3 className="font-extrabold text-white text-xs uppercase tracking-wide truncate">
+                      <h3 className="font-extrabold text-[#F5F5F5] text-xs uppercase tracking-wide truncate">
                         {img.name}
                       </h3>
-                      <p className="text-[10px] text-purple-300/60 mt-0.5">
+                      <p className="text-[10px] text-[#777278] mt-0.5">
                         Saved {new Date(img.createdAt).toLocaleDateString()}
                       </p>
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-2 pt-2 border-t border-purple-900/30">
+                    <div className="flex items-center gap-2 pt-2 border-t border-[#29252A]">
                       {onSelectForMatchCreation && (
                         <button
                           onClick={() => onSelectForMatchCreation(img)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-extrabold uppercase tracking-wider transition active:scale-95"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-[#C9A34E]/20 hover:bg-[#C9A34E]/30 text-[#C9A34E] border border-[#C9A34E]/30 text-[10px] font-extrabold uppercase tracking-wider transition active:scale-95"
                           title="Use this image to create a new match"
                         >
                           <PlayCircle className="w-3 h-3" />
@@ -413,7 +413,7 @@ export const SavedImagesManagement: React.FC<SavedImagesManagementProps> = ({
                       <button
                         onClick={() => handleDelete(img.id, img.name)}
                         disabled={deletingId === img.id}
-                        className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-400 border border-rose-800/40 transition active:scale-95"
+                        className="p-1.5 rounded-lg bg-[#350A12] hover:bg-[#4A0D16] text-[#FF3048] border border-[#E21B36]/30 transition active:scale-95 cursor-pointer"
                         title="Delete image from library"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

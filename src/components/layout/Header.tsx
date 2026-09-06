@@ -93,39 +93,39 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-[#120F24]/90 backdrop-blur-md border-b border-purple-900/40 px-3 sm:px-4 py-1.5 transition-all">
+    <header className="sticky top-0 z-30 bg-[#0D0B0D]/95 backdrop-blur-md border-b border-[#29252A] px-3 sm:px-4 py-1.5 transition-all" id="winx7-header">
       <div className="flex items-center justify-between gap-2 max-w-7xl mx-auto">
         {/* Left: Mobile menu toggle & Brand Title */}
         <div className="flex items-center gap-2">
           <button
             onClick={toggleMobileMenu}
-            className="md:hidden p-1.5 rounded-xl text-purple-200 hover:text-white bg-purple-950/50 hover:bg-purple-900/60 border border-purple-800/30 transition active:scale-95"
+            className="md:hidden p-1.5 rounded-lg text-[#B0ACB0] hover:text-white bg-[#171418] hover:bg-[#141215] border border-[#29252A] transition cursor-pointer active:scale-95"
             aria-label="Toggle navigation menu"
           >
-            <Menu className="w-4 h-4 text-amber-400" />
+            <Menu className="w-4 h-4 text-[#C9A34E]" />
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="relative flex items-center justify-center w-7 h-7 rounded-xl bg-gradient-to-br from-purple-600 via-indigo-600 to-amber-500 p-[1px] shadow-sm">
-              <div className="w-full h-full bg-[#0F0D1A] rounded-[10px] flex items-center justify-center">
-                <Gamepad2 className="w-4 h-4 text-amber-400 animate-pulse" />
+            <div className="relative flex items-center justify-center w-7 h-7 rounded-lg bg-gradient-to-br from-[#C9A34E] via-[#E21B36] to-[#4A0D16] p-[1px] shadow-sm">
+              <div className="w-full h-full bg-[#080708] rounded-[6px] flex items-center justify-center">
+                <Gamepad2 className="w-4 h-4 text-[#C9A34E]" />
               </div>
               <span className="absolute -bottom-0.5 -right-0.5 flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 border border-[#120F24]"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C9A34E] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#C9A34E] border border-[#0D0B0D]"></span>
               </span>
             </div>
 
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-sm tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-purple-200 to-amber-400">
+                <span className="font-extrabold text-sm tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-[#C9A34E] via-white to-[#C9A34E]">
                   WinX7
                 </span>
-                <span className="px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">
+                <span className="px-1.5 py-[1px] text-[8px] font-black uppercase tracking-widest bg-[#350A12] text-[#FF3048] border border-[#E21B36]/20 rounded-full">
                   Admin
                 </span>
               </div>
-              <h1 className="text-xs text-purple-300/80 font-medium hidden sm:block">
+              <h1 className="text-[10px] text-[#777278] font-bold uppercase tracking-wider hidden sm:block mt-0.5">
                 {getTitle()}
               </h1>
             </div>
@@ -135,12 +135,12 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Center: Quick Search Bar (Tablet/Desktop) */}
         <div className="hidden lg:flex items-center flex-1 max-w-xs mx-4">
           <div className="relative w-full">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-purple-400" />
+            <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-[#777278]" />
             <input
               type="text"
               placeholder="Search user, match ID, transaction..."
               onClick={() => setActiveTab('users')}
-              className="w-full bg-[#181433] text-purple-100 text-xs pl-9 pr-3 py-2 rounded-xl border border-purple-800/40 focus:border-amber-400 focus:outline-none transition"
+              className="w-full bg-[#171418] text-[#F5F5F5] text-xs pl-9 pr-3 py-2 rounded-lg border border-[#29252A] focus:border-[#C9A34E] focus:outline-none transition uppercase tracking-wider font-bold placeholder-[#777278]"
             />
           </div>
         </div>
@@ -151,23 +151,23 @@ export const Header: React.FC<HeaderProps> = ({
           {pendingCount > 0 && (
             <button
               onClick={() => setActiveTab('wallet')}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-purple-900/40 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition text-xs font-semibold animate-pulse active:scale-95"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-[#350A12] to-[#141215] border border-[#E21B36]/30 text-[#FF3048] hover:bg-[#4A0D16]/50 transition text-[10px] font-black uppercase tracking-wider animate-pulse cursor-pointer active:scale-95"
             >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <Zap className="w-3.5 h-3.5 text-[#FF3048]" />
               <span>{pendingCount} Pending</span>
             </button>
           )}
 
           {/* Quick System Status Indicator */}
           {isOnline && isDbOnline ? (
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/30 text-emerald-400 text-[11px] font-medium">
-              <Globe className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#141215] border border-[#29252A] text-[#C9A34E] text-[10px] font-black uppercase tracking-wider">
+              <Globe className="w-3 h-3 text-[#C9A34E]" />
               <span>Live Server</span>
             </div>
           ) : (
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950/40 border border-amber-800/30 text-amber-400 text-[11px] font-medium animate-pulse">
-              <Globe className="w-3 h-3 text-amber-400 animate-spin" />
-              <span>Offline Cache Mode</span>
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#350A12] border border-[#E21B36]/30 text-[#FF3048] text-[10px] font-black uppercase tracking-wider animate-pulse">
+              <Globe className="w-3 h-3 text-[#FF3048] animate-spin" />
+              <span>Offline Cache</span>
             </div>
           )}
 
@@ -177,14 +177,14 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onRefresh}
               disabled={isRefreshing}
               title={`Re-sync live data from server (${lastRefreshedText})`}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border transition text-xs font-bold active:scale-95 ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition text-[10px] font-black uppercase tracking-wider cursor-pointer active:scale-95 ${
                 isRefreshing
-                  ? 'bg-indigo-950/80 text-indigo-300 border-indigo-700/50 cursor-wait'
-                  : 'bg-[#1A1638] hover:bg-purple-900/50 text-purple-200 hover:text-white border-purple-800/40'
+                  ? 'bg-[#141215] text-[#777278] border-[#29252A] cursor-wait'
+                  : 'bg-[#141215] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border-[#29252A]'
               }`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span className="hidden md:inline">{isRefreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 text-[#C9A34E] ${isRefreshing ? 'animate-spin' : ''}`} />
+              <span className="hidden md:inline">{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
             </button>
           )}
 
@@ -192,34 +192,34 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="relative">
             <button
               onClick={() => setShowProfileMenu(!showProfileMenu)}
-              className="flex items-center gap-2 p-1.5 rounded-xl bg-[#1A1638] border border-purple-800/40 hover:bg-purple-900/40 transition active:scale-95"
+              className="flex items-center gap-2 p-1 rounded-lg bg-[#141215] border border-[#29252A] hover:bg-[#1B181C] transition cursor-pointer active:scale-95"
             >
               <img
                 src={currentUser?.avatarUrl || 'https://images.unsplash.com/photo-1566492031773-4f4e44671857?w=150&auto=format&fit=crop&q=80'}
                 alt="Avatar"
-                className="w-7 h-7 rounded-lg object-cover ring-1 ring-amber-400/50"
+                className="w-7 h-7 rounded-md object-cover border border-[#C9A34E]/40"
               />
               <div className="hidden sm:block text-left pr-1">
-                <p className="text-xs font-bold text-purple-100 truncate max-w-[100px]">
+                <p className="text-[10px] font-black text-[#F5F5F5] truncate max-w-[100px]">
                   {currentUser?.displayName || 'Admin'}
                 </p>
-                <p className="text-[10px] text-amber-400 uppercase font-semibold">
+                <p className="text-[9px] text-[#C9A34E] uppercase font-black tracking-wider">
                   {currentUser?.role || 'Admin'}
                 </p>
               </div>
-              <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-[#777278]" />
             </button>
 
             {showProfileMenu && (
-              <div className="absolute right-0 mt-2 w-56 bg-[#181433] border border-purple-700/50 rounded-2xl shadow-2xl p-2 z-50">
-                <div className="p-2 border-b border-purple-800/40 mb-1">
-                  <p className="text-xs font-bold text-amber-300 truncate">
+              <div className="absolute right-0 mt-2 w-56 bg-[#1B181C] border border-[#29252A] rounded-lg shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-top-1">
+                <div className="p-2 border-b border-[#29252A] mb-1">
+                  <p className="text-xs font-black text-[#C9A34E] truncate">
                     {currentUser?.displayName}
                   </p>
-                  <p className="text-[11px] text-purple-300 truncate">
+                  <p className="text-[10px] text-[#B0ACB0] truncate">
                     {currentUser?.email}
                   </p>
-                  <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full uppercase">
+                  <span className="inline-block mt-1.5 text-[8px] font-black px-2 py-0.5 bg-[#350A12] text-[#FF3048] border border-[#E21B36]/10 rounded uppercase tracking-widest">
                     Role: {currentUser?.role}
                   </span>
                 </div>
@@ -229,9 +229,9 @@ export const Header: React.FC<HeaderProps> = ({
                     setShowProfileMenu(false);
                     setActiveTab('staff');
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-purple-200 hover:bg-purple-900/40 hover:text-amber-300 rounded-xl transition text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#B0ACB0] hover:bg-[#141215] hover:text-[#C9A34E] rounded transition text-left font-bold uppercase tracking-wider cursor-pointer"
                 >
-                  <ShieldAlert className="w-4 h-4 text-purple-400" />
+                  <ShieldAlert className="w-3.5 h-3.5 text-[#777278]" />
                   <span>My Admin Profile</span>
                 </button>
 
@@ -240,21 +240,21 @@ export const Header: React.FC<HeaderProps> = ({
                     setShowProfileMenu(false);
                     setActiveTab('settings');
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-purple-200 hover:bg-purple-900/40 hover:text-amber-300 rounded-xl transition text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#B0ACB0] hover:bg-[#141215] hover:text-[#C9A34E] rounded transition text-left font-bold uppercase tracking-wider cursor-pointer"
                 >
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span>Database Settings</span>
+                  <Sparkles className="w-3.5 h-3.5 text-[#C9A34E]" />
+                  <span>System Settings</span>
                 </button>
 
-                <div className="pt-1 mt-1 border-t border-purple-800/40">
+                <div className="pt-1 mt-1 border-t border-[#29252A]">
                   <button
                     onClick={() => {
                       setShowProfileMenu(false);
                       logout();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-rose-400 hover:bg-rose-950/40 rounded-xl transition text-left font-semibold"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-[#FF3048] hover:bg-[#350A12] rounded transition text-left font-black uppercase tracking-widest cursor-pointer"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="w-3.5 h-3.5" />
                     <span>Log Out</span>
                   </button>
                 </div>

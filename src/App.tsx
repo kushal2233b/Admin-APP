@@ -17,12 +17,14 @@ import { DepositsView } from './components/wallet/DepositsView';
 import { WithdrawalsView } from './components/wallet/WithdrawalsView';
 import { CouponManagement } from './components/coupons/CouponManagement';
 
-import { SupportDeskConfig } from './components/support/SupportDeskConfig';
+import { LiveChatSupport } from './components/support/LiveChatSupport';
+import { SupportCategoriesManagement } from './components/support/SupportCategoriesManagement';
 import { ReportsAnalytics } from './components/reports/ReportsAnalytics';
 import { StaffManagement } from './components/staff/StaffManagement';
 import { SystemSettings } from './components/settings/SystemSettings';
 import { SavedImagesManagement } from './components/images/SavedImagesManagement';
 import { ResultRequestsManagement } from './components/results/ResultRequestsManagement';
+import { CustomNotifications } from './components/notifications/CustomNotifications';
 
 import { supabase } from './services/supabase';
 
@@ -76,6 +78,10 @@ import {
   cancelMatchAndRefund,
   getMatchParticipantsFromSupabase
 } from './services/supabaseService';
+import {
+  sendWithdrawalNotification,
+  sendMatchResultNotification
+} from './services/notificationSenderService';
 
 // Mock Data Initializers
 import {
@@ -111,6 +117,7 @@ function MainPortalContent() {
   const { currentUser } = useAuth();
 
   const [activeTab, setActiveTab] = useState(() => (currentUser?.role === 'staff' ? 'matches' : 'dashboard'));
+  const [supportSubTab, setSupportSubTab] = useState<'live_chat' | 'categories'>('live_chat');
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   // Enforce staff role restriction: Staff users can ONLY access tournament matches
@@ -141,6 +148,7 @@ function MainPortalContent() {
 
   const handleApproveAndPublishResultRequest = useCallback(async (requestId: string) => {
     if (!currentUser) throw new Error('You must be logged in as an Admin.');
+    const targetReq = resultRequests.find((r) => r.id === requestId);
     await approveAndPublishResultRequestInSupabase(requestId, {
       uid: currentUser.id || currentUser.uid || 'Admin',
       displayName: currentUser.displayName || 'Admin',
@@ -148,7 +156,18 @@ function MainPortalContent() {
     });
     const fresh = await fetchResultRequestsFromSupabase();
     setResultRequests(fresh);
-  }, [currentUser]);
+
+    // Send targeted RESULT notification to match participants
+    const matchId = targetReq?.matchId || targetReq?.match_id;
+    if (matchId) {
+      sendMatchResultNotification({
+        matchId,
+        eventId: `result_${matchId}`
+      }).catch((err) => {
+        console.warn('[FCM Result Request Notification Trigger Notice]:', err);
+      });
+    }
+  }, [currentUser, resultRequests]);
 
   const handleRejectResultRequest = useCallback(async (requestId: string, reason: string) => {
     if (!currentUser) throw new Error('You must be logged in as an Admin.');
@@ -1245,6 +1264,15 @@ function MainPortalContent() {
         
         pushAudit('Published Match Results', `Match: ${id}, Participants: ${rpcResults.length}`);
 
+        // Trigger ONE targeted RESULT notification to participants who joined this match
+        sendMatchResultNotification({
+          matchId: id,
+          eventId: `result_${id}`,
+          userIds: rpcResults.map((r: any) => r.user_id).filter(Boolean)
+        }).catch((err) => {
+          console.warn('[FCM Match Result Notification Trigger Notice]:', err);
+        });
+
         showConfirmationOverlay(
           'Match Results Published Successfully!',
           `Leaderboard has been finalized and player winnings have been credited to their wallets.`,
@@ -1300,6 +1328,20 @@ function MainPortalContent() {
     try {
       await runAsyncAction(`Approving payment transaction of ₹${matchedTx.amount}...`, async () => {
         const result = await approveTransactionInFirestore(matchedTx, note || 'Approved by WinX7 Admin');
+
+        // 1. Trigger ONE targeted FCM notification upon successful withdrawal approval
+        if (matchedTx.type === 'withdrawal') {
+          const wId = matchedTx.withdrawalRequestId || matchedTx.referenceId || matchedTx.id;
+          sendWithdrawalNotification({
+            userId: matchedTx.userId,
+            transactionId: wId,
+            eventId: `withdrawal_${wId}`,
+            amount: matchedTx.amount,
+            token: (matchedTx as any).fcmToken || (matchedTx as any).fcm_token
+          }).catch((err) => {
+            console.warn('[FCM Withdrawal Notification Trigger Notice]:', err);
+          });
+        }
 
         await refreshDeposits();
 
@@ -1874,7 +1916,7 @@ function MainPortalContent() {
   const pendingWithdrawalsCount = transactions.filter((t) => t.type === 'withdrawal' && t.status === 'pending').length;
 
   return (
-    <div className="min-h-screen bg-[#0A0814] text-white flex flex-col font-sans selection:bg-purple-600 selection:text-white">
+    <div className="min-h-screen bg-[#080708] text-white flex flex-col font-sans selection:bg-[#E21B36] selection:text-white">
       
       {/* Top App Header */}
       <Header
@@ -2028,10 +2070,14 @@ function MainPortalContent() {
             />
           )}
 
-          {activeTab === 'announcements' && (
-            <div className="text-purple-300 text-center py-10 text-sm">
-              Push notification management has been moved to the Notification App.
-            </div>
+          {(activeTab === 'notifications' || activeTab === 'announcements') && (
+            <CustomNotifications
+              users={users}
+              tournaments={tournaments}
+              notifications={notifications}
+              onSaveNotificationToHistory={handleSendNotification}
+              showConfirmationOverlay={showConfirmationOverlay}
+            />
           )}
 
 
@@ -2044,10 +2090,42 @@ function MainPortalContent() {
           )}
 
           {activeTab === 'support' && (
-            <SupportDeskConfig
-              settings={settings}
-              onUpdateSettings={handleUpdateSystemSettings}
-            />
+            <div className="flex flex-col h-full bg-[#080708] min-h-0 overflow-hidden" id="support-main-section">
+              {/* Internal Subtabs Selector */}
+              <div className="flex border-b border-[#29252A] bg-[#0D0B0D] p-2 space-x-2 flex-shrink-0">
+                <button
+                  id="support-subtab-live-chat"
+                  onClick={() => setSupportSubTab('live_chat')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold tracking-wide uppercase transition-all cursor-pointer ${
+                    supportSubTab === 'live_chat'
+                      ? 'bg-[#C9A34E] text-black shadow-lg shadow-amber-500/10'
+                      : 'bg-[#141215] text-[#B0ACB0] hover:text-[#F5F5F5] border border-[#29252A]'
+                  }`}
+                >
+                  💬 Live Support Chats
+                </button>
+                <button
+                  id="support-subtab-categories"
+                  onClick={() => setSupportSubTab('categories')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold tracking-wide uppercase transition-all cursor-pointer ${
+                    supportSubTab === 'categories'
+                      ? 'bg-[#C9A34E] text-black shadow-lg shadow-amber-500/10'
+                      : 'bg-[#141215] text-[#B0ACB0] hover:text-[#F5F5F5] border border-[#29252A]'
+                  }`}
+                >
+                  📁 Support Categories
+                </button>
+              </div>
+
+              {/* Subtab Content Viewports */}
+              <div className="flex-1 overflow-hidden min-h-0">
+                {supportSubTab === 'live_chat' ? (
+                  <LiveChatSupport />
+                ) : (
+                  <SupportCategoriesManagement />
+                )}
+              </div>
+            </div>
           )}
 
           {activeTab === 'reports' && (
@@ -2080,21 +2158,21 @@ function MainPortalContent() {
       {/* Live Sync / Saving Progress Loader Indicator */}
       {isDbProcessing && (
         <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/85 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[#15112E] border border-purple-800/60 p-8 rounded-3xl flex flex-col items-center space-y-4 max-w-sm text-center shadow-2xl">
+          <div className="bg-[#0D0B0D] border border-[#29252A] p-8 rounded-3xl flex flex-col items-center space-y-4 max-w-sm text-center shadow-2xl">
             <div className="relative w-16 h-16">
               {/* Inner glow and spinner */}
-              <div className="absolute inset-0 rounded-full border-4 border-purple-950" />
+              <div className="absolute inset-0 rounded-full border-4 border-[#29252A]" />
               <div className="absolute inset-0 rounded-full border-4 border-t-amber-400 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
             </div>
             <div className="space-y-1.5">
-              <h4 className="text-sm font-black text-amber-300 uppercase tracking-widest">
+              <h4 className="text-sm font-black text-[#C9A34E] uppercase tracking-widest">
                 Syncing with Cloud
               </h4>
-              <p className="text-xs text-purple-200 font-medium">
+              <p className="text-xs text-[#B0ACB0] font-medium">
                 {dbProcessingMessage || 'Processing your request...'}
               </p>
             </div>
-            <div className="text-[9px] text-purple-400 font-bold uppercase tracking-wider bg-purple-950 px-3 py-1 rounded-full border border-purple-900/40">
+            <div className="text-[9px] text-[#777278] font-bold uppercase tracking-wider bg-[#0D0B0D] px-3 py-1 rounded-full border border-[#29252A]">
               WinX7 Live Sync
             </div>
           </div>
@@ -2134,12 +2212,12 @@ function AppWithAuth() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0814] flex flex-col items-center justify-center text-white p-4">
-        <div className="w-12 h-12 border-4 border-purple-600/30 border-t-amber-400 rounded-full animate-spin mb-4" />
-        <p className="text-xs font-extrabold text-amber-300 uppercase tracking-widest text-center">
+      <div className="min-h-screen bg-[#080708] flex flex-col items-center justify-center text-white p-4">
+        <div className="w-12 h-12 border-4 border-[#E21B36]/30 border-t-[#C9A34E] rounded-full animate-spin mb-4" />
+        <p className="text-xs font-extrabold text-[#C9A34E] uppercase tracking-widest text-center">
           Verifying WinX7 Admin Authorization...
         </p>
-        <p className="text-[11px] text-purple-400/80 mt-1 text-center">
+        <p className="text-[11px] text-[#777278]/80 mt-1 text-center">
           Checking account privileges with database
         </p>
       </div>
@@ -2149,19 +2227,19 @@ function AppWithAuth() {
   // If user is authenticated in Supabase but not an authorized Admin (e.g. role USER)
   if (sessionUser && !currentUser) {
     return (
-      <div className="min-h-screen bg-[#0A0814] flex items-center justify-center p-4">
-        <div className="relative w-full max-w-md bg-[#130F29] border border-purple-800/60 rounded-3xl p-6 sm:p-8 shadow-2xl text-center animate-in fade-in">
+      <div className="min-h-screen bg-[#080708] flex items-center justify-center p-4">
+        <div className="relative w-full max-w-md bg-[#0D0B0D] border border-[#29252A] rounded-3xl p-6 sm:p-8 shadow-2xl text-center animate-in fade-in">
           <div className="w-16 h-16 rounded-3xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto mb-4">
             <ShieldAlert className="w-8 h-8 text-rose-400" />
           </div>
           <h2 className="text-xl font-black text-white mb-1 tracking-tight">
             Admin Access Required
           </h2>
-          <p className="text-xs text-purple-300/90 mb-4">
+          <p className="text-xs text-[#B0ACB0]/90 mb-4">
             You are signed in as <span className="text-white font-semibold">{sessionUser.email || 'User'}</span> with normal user permissions.
           </p>
-          <div className="p-3 bg-purple-950/60 border border-purple-800/50 rounded-2xl text-left text-xs text-purple-300 mb-6">
-            <p className="text-[11px] text-purple-200 font-medium">
+          <div className="p-3 bg-[#0D0B0D]/60 border border-[#29252A] rounded-2xl text-left text-xs text-[#B0ACB0] mb-6">
+            <p className="text-[11px] text-[#B0ACB0] font-medium">
               This portal is restricted to authorized WinX7 administrators only.
             </p>
           </div>
@@ -2174,7 +2252,7 @@ function AppWithAuth() {
             </button>
             <button
               onClick={() => logout()}
-              className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-purple-300 hover:text-white bg-[#1A1538] hover:bg-purple-900/40 border border-purple-800/50 transition duration-200 active:scale-95"
+              className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-[#B0ACB0] hover:text-white bg-[#141215] hover:bg-[#1B181C] border border-[#29252A] transition duration-200 active:scale-95"
             >
               Sign Out
             </button>

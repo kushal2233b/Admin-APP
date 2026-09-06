@@ -111,11 +111,11 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
       {showAmountPicker && (
         <div className="w-full space-y-3">
           <div className="flex items-center justify-between">
-            <label className="text-[11px] font-extrabold uppercase tracking-wider text-amber-300">
+            <label className="text-[11px] font-extrabold uppercase tracking-wider text-[#C9A34E]">
               Select Deposit Amount
             </label>
             {activeAmount > 0 && (
-              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800/60">
+              <span className="text-[10px] font-bold text-[#C9A34E] bg-[#350A12]/80 px-2 py-0.5 rounded-full border border-[#29252A]/60">
                 ₹{activeAmount} Selected
               </span>
             )}
@@ -133,7 +133,7 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
                   className={`py-2 px-1 text-xs font-black rounded-xl border transition flex items-center justify-center ${
                     isSelected
                       ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black border-amber-300 shadow-lg shadow-amber-500/20 scale-105 ring-2 ring-amber-300/80'
-                      : 'bg-[#181335] text-purple-200 border-purple-800/60 hover:border-amber-400/60 hover:bg-[#201A45]'
+                      : 'bg-[#141215] text-[#B0ACB0] border-[#29252A] hover:border-amber-400/60 hover:bg-[#201A45]'
                   }`}
                 >
                   ₹{amt}
@@ -149,18 +149,18 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
               onClick={handleToggleCustom}
               className={`w-full py-2 px-3 text-xs font-bold rounded-xl border transition flex items-center justify-center gap-2 ${
                 isCustomMode
-                  ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500 ring-1 ring-indigo-400'
-                  : 'bg-[#181335] text-purple-300 border-purple-800/60 hover:border-indigo-400/50'
+                  ? 'bg-[#E21B36]/30 text-[#B0ACB0] border-indigo-500 ring-1 ring-indigo-400'
+                  : 'bg-[#141215] text-[#B0ACB0] border-[#29252A] hover:border-[#C9A34E]/50'
               }`}
             >
-              <IndianRupee className="w-3.5 h-3.5 text-indigo-400" />
+              <IndianRupee className="w-3.5 h-3.5 text-[#777278]" />
               <span>{isCustomMode ? 'Custom Amount Active' : 'Enter Custom Amount'}</span>
             </button>
 
             {/* Custom Amount Field with Numeric Validation */}
             {isCustomMode && (
               <div className="mt-2.5 relative max-w-sm mx-auto animate-in fade-in zoom-in-95">
-                <IndianRupee className="absolute left-3.5 top-3 w-4 h-4 text-amber-400" />
+                <IndianRupee className="absolute left-3.5 top-3 w-4 h-4 text-[#C9A34E]" />
                 <input
                   type="text"
                   inputMode="numeric"
@@ -168,7 +168,7 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
                   value={customInputText}
                   onChange={handleCustomInputChange}
                   placeholder="e.g. 250 (Digits only)"
-                  className="w-full pl-10 pr-3 py-2.5 bg-[#120E28] text-amber-300 font-extrabold text-sm rounded-xl border border-indigo-500/80 focus:border-amber-400 focus:outline-none text-center shadow-inner"
+                  className="w-full pl-10 pr-3 py-2.5 bg-[#171418] text-[#C9A34E] font-extrabold text-sm rounded-xl border border-[#E21B36] focus:border-[#C9A34E] focus:outline-none text-center shadow-inner"
                 />
               </div>
             )}
@@ -192,7 +192,7 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
             style={{ width: size, height: size }}
             className="flex flex-col items-center justify-center text-center p-4 bg-gray-100 rounded-lg text-gray-500 text-xs font-bold"
           >
-            <QrCode className="w-8 h-8 text-amber-500 mb-1" />
+            <QrCode className="w-8 h-8 text-[#C9A34E] mb-1" />
             <span>Enter Receiver UPI ID to generate live QR</span>
           </div>
         )}
@@ -206,12 +206,12 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
 
       {/* UPI Details & Copy Controls */}
       {showDetails && (
-        <div className="w-full max-w-sm bg-[#120E28] p-3 rounded-2xl border border-purple-800/60 space-y-2 text-left shadow-lg">
+        <div className="w-full max-w-sm bg-[#171418] p-3 rounded-2xl border border-[#29252A] space-y-2 text-left shadow-lg">
           
-          <div className="flex items-center justify-between border-b border-purple-900/60 pb-2">
+          <div className="flex items-center justify-between border-b border-[#29252A]/60 pb-2">
             <div>
-              <p className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">Receiver UPI ID (VPA)</p>
-              <p className="text-xs font-mono font-black text-amber-300 truncate">
+              <p className="text-[10px] font-bold text-[#777278] uppercase tracking-wider">Receiver UPI ID (VPA)</p>
+              <p className="text-xs font-mono font-black text-[#C9A34E] truncate">
                 {upiId || 'Not Configured'}
               </p>
             </div>
@@ -220,16 +220,16 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
               <button
                 type="button"
                 onClick={handleCopyUpi}
-                className="px-2.5 py-1.5 rounded-xl bg-purple-900/80 hover:bg-purple-800 text-amber-300 border border-purple-700/50 text-[10px] font-bold transition flex items-center gap-1 shrink-0"
+                className="px-2.5 py-1.5 rounded-xl bg-[#141215]/80 hover:bg-[#FF3048] text-[#C9A34E] border border-[#29252A] text-[10px] font-bold transition flex items-center gap-1 shrink-0"
               >
                 {copied ? (
                   <>
-                    <Check className="w-3 h-3 text-emerald-400" />
-                    <span className="text-emerald-400">Copied!</span>
+                    <Check className="w-3 h-3 text-[#C9A34E]" />
+                    <span className="text-[#C9A34E]">Copied!</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3 h-3 text-amber-400" />
+                    <Copy className="w-3 h-3 text-[#C9A34E]" />
                     <span>Copy UPI</span>
                   </>
                 )}
@@ -239,13 +239,13 @@ export const DynamicUpiQrCode: React.FC<DynamicUpiQrCodeProps> = ({
 
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
-              <p className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">Payee Name</p>
+              <p className="text-[10px] font-bold text-[#777278] uppercase tracking-wider">Payee Name</p>
               <p className="text-white font-extrabold truncate">{upiName || 'WinX7 Gaming'}</p>
             </div>
 
             <div>
-              <p className="text-[10px] font-bold text-purple-400 uppercase tracking-wider">QR Payment Amount</p>
-              <p className="text-amber-300 font-extrabold">
+              <p className="text-[10px] font-bold text-[#777278] uppercase tracking-wider">QR Payment Amount</p>
+              <p className="text-[#C9A34E] font-extrabold">
                 {activeAmount > 0 ? `₹${activeAmount} (Fixed)` : 'Any Amount'}
               </p>
             </div>

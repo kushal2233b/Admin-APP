@@ -41,7 +41,8 @@ import {
   Tag,
   Layers,
   Check,
-  Zap
+  Zap,
+  ArrowLeft
 } from 'lucide-react';
 
 interface TournamentManagementProps {
@@ -961,11 +962,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
     <div className="space-y-5 animate-in fade-in pb-16 md:pb-6">
       
       {/* Visual Identity Title & Quick Actions Header Block */}
-      <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-[#0F0D24] border border-purple-900/30 shadow-xl">
+      <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-[#141215] border border-[#29252A]/30 shadow-xl">
         {/* Top-Left Logo / Brand info */}
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 via-[#1C1540] to-[#FFA41C] p-[1.5px] shadow-lg flex items-center justify-center">
-            <div className="w-full h-full bg-[#0F0D1A] rounded-full flex items-center justify-center font-black text-amber-400 text-lg">
+          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 via-[#1C1540] to-[#C9A34E] p-[1.5px] shadow-lg flex items-center justify-center">
+            <div className="w-full h-full bg-[#0D0B0D] rounded-full flex items-center justify-center font-black text-[#C9A34E] text-lg">
               X
             </div>
           </div>
@@ -975,7 +976,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 WIN X7
               </span>
             </div>
-            <p className="text-[10px] text-amber-500/90 font-black tracking-widest uppercase -mt-0.5">
+            <p className="text-[10px] text-[#C9A34E]/90 font-black tracking-widest uppercase -mt-0.5">
               Admin Portal
             </p>
           </div>
@@ -985,9 +986,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowCategoryModal(true)}
-            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-800/40 font-bold text-xs transition active:scale-95"
+            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-full bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] font-bold text-xs transition active:scale-95"
           >
-            <Tag className="w-4 h-4 text-amber-400" />
+            <Tag className="w-4 h-4 text-[#C9A34E]" />
             <span>Categories ({(categories || []).length})</span>
           </button>
 
@@ -1018,7 +1019,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               setIsTimeManual(false); // Reset to false to start live syncing!
               setShowCreateModal(true);
             }}
-            className="flex items-center justify-center gap-1 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-[#FFA41C] hover:bg-amber-400 text-black font-black text-xs sm:text-xs transition shadow-lg shadow-amber-500/10 active:scale-95"
+            className="flex items-center justify-center gap-1 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-[#C9A34E] hover:bg-amber-400 text-black font-black text-xs sm:text-xs transition shadow-lg shadow-amber-500/10 active:scale-95"
           >
             <Plus className="w-4 h-4" />
             <span>Create Match</span>
@@ -1027,7 +1028,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       </div>
 
       {/* Main Status Navigation Tabs (Slick Bottom-Line Active State) */}
-      <div className="flex items-center gap-6 border-b border-purple-950/40 pb-2 overflow-x-auto custom-scrollbar">
+      <div className="flex items-center gap-6 border-b border-[#29252A]/40 pb-2 overflow-x-auto custom-scrollbar">
         {['all', 'upcoming', 'live', 'finished', 'cancelled', 'rules'].map((st) => {
           const label = st === 'all' ? 'All' : st === 'finished' ? 'Completed' : st === 'rules' ? 'Rules Presets' : st.charAt(0).toUpperCase() + st.slice(1);
           const isActive = filterStatus === st;
@@ -1041,8 +1042,8 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               }}
               className={`pb-1 pb-1 text-[11px] font-extrabold tracking-wide uppercase transition-all duration-200 border-b-2 whitespace-nowrap ${
                 isActive
-                  ? 'text-[#FFA41C] border-[#FFA41C]'
-                  : 'text-purple-300/60 border-transparent hover:text-purple-100'
+                  ? 'text-[#C9A34E] border-[#C9A34E]'
+                  : 'text-[#B0ACB0]/60 border-transparent hover:text-[#F5F5F5]'
               }`}
             >
               {label}
@@ -1059,7 +1060,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition ${
               filterGame === 'all'
                 ? 'bg-amber-400 text-black shadow-md font-black'
-                : 'text-purple-300 hover:text-white bg-[#120E2E]/60 border border-purple-900/30'
+                : 'text-[#B0ACB0] hover:text-white bg-[#141215]/60 border border-[#29252A]/30'
             }`}
           >
             ALL CATEGORIES
@@ -1072,8 +1073,8 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               onClick={() => setFilterGame(cat.name)}
               className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition ${
                 filterGame === cat.name
-                  ? 'bg-purple-900/80 text-amber-300 border border-amber-400/30 shadow-md font-extrabold'
-                  : 'text-purple-300 hover:text-white bg-[#120E2E]/60 border border-purple-900/30'
+                  ? 'bg-[#141215]/80 text-[#C9A34E] border border-amber-400/30 shadow-md font-extrabold'
+                  : 'text-[#B0ACB0] hover:text-white bg-[#141215]/60 border border-[#29252A]/30'
               }`}
             >
               {cat.name}
@@ -1089,9 +1090,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               setCatActiveInput(true);
               setShowCategoryModal(true);
             }}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase text-amber-300 bg-purple-950 hover:bg-purple-900 border border-purple-800/60 transition flex-shrink-0"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase text-[#C9A34E] bg-[#0D0B0D] hover:bg-[#141215] border border-[#29252A] transition flex-shrink-0"
           >
-            <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+            <Edit3 className="w-3.5 h-3.5 text-[#C9A34E]" />
             <span>Edit Categories</span>
           </button>
         </div>
@@ -1099,13 +1100,13 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
       {filterStatus === 'rules' ? (
         <div className="space-y-6">
-          <div className="bg-[#120E2E]/60 border border-purple-900/30 rounded-2xl p-4 sm:p-5">
+          <div className="bg-[#141215]/60 border border-[#29252A]/30 rounded-2xl p-4 sm:p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="font-extrabold text-white text-sm tracking-wide uppercase">
                   {editingRulePreset ? '✏️ Edit Rules Preset' : '✨ Create New Rules Preset'}
                 </h3>
-                <p className="text-[10px] sm:text-xs text-purple-300 leading-relaxed mt-0.5">
+                <p className="text-[10px] sm:text-xs text-[#B0ACB0] leading-relaxed mt-0.5">
                   Save templates of rules for different match modes so you can select them with 1-click while hosting new tournaments.
                 </p>
               </div>
@@ -1116,7 +1117,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     setRulePresetName('');
                     setRulePresetText('');
                   }}
-                  className="px-3 py-1 bg-purple-900 hover:bg-purple-800 text-purple-200 text-[10px] font-bold rounded-lg transition"
+                  className="px-3 py-1 bg-[#141215] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white text-[10px] font-bold rounded-lg transition"
                 >
                   Cancel Edit
                 </button>
@@ -1141,7 +1142,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               className="space-y-3.5"
             >
               <div>
-                <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
+                <label className="block text-[10px] uppercase font-bold text-[#B0ACB0] mb-1">
                   Preset Name / Category
                 </label>
                 <input
@@ -1150,12 +1151,12 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   placeholder="e.g. Clash Squad 4v4 Official, Classic Solo Survival"
                   value={rulePresetName}
                   onChange={(e) => setRulePresetName(e.target.value)}
-                  className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none focus:border-amber-400"
+                  className="w-full bg-[#141215] text-white text-xs p-2.5 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E]"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
+                <label className="block text-[10px] uppercase font-bold text-[#B0ACB0] mb-1">
                   Rules Content
                 </label>
                 <textarea
@@ -1164,14 +1165,14 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   placeholder="Official Match Rules:&#10;1. Emulator not allowed.&#10;2. PC or tablet not allowed.&#10;3. No teaming/hacking allowed. Violators will be banned."
                   value={rulePresetText}
                   onChange={(e) => setRulePresetText(e.target.value)}
-                  className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none focus:border-amber-400"
+                  className="w-full bg-[#141215] text-white text-xs p-2.5 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E]"
                 />
               </div>
 
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#FFA41C] hover:bg-amber-400 text-black font-black text-xs transition shadow-lg shadow-amber-500/10 active:scale-95"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#C9A34E] hover:bg-amber-400 text-black font-black text-xs transition shadow-lg shadow-amber-500/10 active:scale-95"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>{editingRulePreset ? 'Update Preset' : 'Save Preset'}</span>
@@ -1182,12 +1183,12 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
           {/* Saved Rules List */}
           <div className="space-y-3">
-            <h4 className="font-extrabold text-xs text-purple-300 uppercase tracking-widest px-1">
+            <h4 className="font-extrabold text-xs text-[#B0ACB0] uppercase tracking-widest px-1">
               Saved Rules Templates ({matchRules.length})
             </h4>
 
             {matchRules.length === 0 ? (
-              <div className="p-8 text-center bg-[#100D28]/40 border border-dashed border-purple-900/30 rounded-2xl text-purple-400 text-xs">
+              <div className="p-8 text-center bg-[#171418]/40 border border-dashed border-[#29252A]/30 rounded-2xl text-[#777278] text-xs">
                 No rules presets saved yet. Create your first preset above to use it during match hosting.
               </div>
             ) : (
@@ -1195,11 +1196,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 {matchRules.map((preset) => (
                   <div
                     key={preset.id}
-                    className="bg-[#120E2E]/80 border border-purple-900/30 rounded-xl p-4 flex flex-col justify-between gap-3 hover:border-purple-800/40 animate-in fade-in duration-300"
+                    className="bg-[#141215]/80 border border-[#29252A]/30 rounded-xl p-4 flex flex-col justify-between gap-3 hover:border-[#29252A] animate-in fade-in duration-300"
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-2 border-b border-purple-950/40 pb-1.5 mb-2">
-                        <span className="font-extrabold text-amber-300 text-xs truncate max-w-[70%] uppercase">
+                      <div className="flex items-center justify-between gap-2 border-b border-[#29252A]/40 pb-1.5 mb-2">
+                        <span className="font-extrabold text-[#C9A34E] text-xs truncate max-w-[70%] uppercase">
                           {preset.name}
                         </span>
                         <div className="flex items-center gap-1">
@@ -1209,7 +1210,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                               setRulePresetName(preset.name);
                               setRulePresetText(preset.rules);
                             }}
-                            className="p-1 rounded bg-purple-900/40 hover:bg-purple-800 text-purple-300 hover:text-white transition"
+                            className="p-1 rounded bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white transition"
                             title="Edit Preset"
                           >
                             <Edit3 className="w-3 h-3" />
@@ -1217,7 +1218,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           {onDeleteMatchRule && (
                             <button
                               onClick={() => onDeleteMatchRule(preset.id)}
-                              className="p-1 rounded bg-red-950/40 hover:bg-red-900 text-red-400 hover:text-red-200 transition"
+                              className="p-1 rounded bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition"
                               title="Delete Preset"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -1225,7 +1226,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           )}
                         </div>
                       </div>
-                      <p className="text-[11px] text-purple-200 whitespace-pre-wrap leading-relaxed">
+                      <p className="text-[11px] text-[#B0ACB0] whitespace-pre-wrap leading-relaxed">
                         {preset.rules}
                       </p>
                     </div>
@@ -1239,18 +1240,18 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
         /* Tournaments Match List (Replicating user image layout exactly) */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {tournaments.length === 0 ? (
-          <div className="col-span-full p-12 text-center bg-[#100D28] rounded-2xl border border-purple-900/30 text-purple-400 text-xs">
+          <div className="col-span-full p-12 text-center bg-[#171418] rounded-2xl border border-[#29252A]/30 text-[#777278] text-xs">
             No tournaments available. Create your first tournament.
           </div>
         ) : filteredTournaments.length === 0 ? (
-          <div className="col-span-full p-12 text-center bg-[#100D28] rounded-2xl border border-purple-900/30 text-purple-400 text-xs">
+          <div className="col-span-full p-12 text-center bg-[#171418] rounded-2xl border border-[#29252A]/30 text-[#777278] text-xs">
             No tournament matches found in the selected category.
           </div>
         ) : (
           filteredTournaments.map((match) => (
             <div
               key={match.id}
-              className="bg-[#120E2E] border border-purple-900/30 rounded-2xl p-4 transition-all shadow-md flex flex-col gap-3 hover:border-purple-800/40"
+              className="bg-[#141215] border border-[#29252A]/30 rounded-2xl p-4 transition-all shadow-md flex flex-col gap-3 hover:border-[#29252A]"
             >
               
               {/* Card Top: Title and status badge */}
@@ -1261,11 +1262,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 <span
                   className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg border ${
                     match.status === 'live'
-                      ? 'bg-rose-950/80 text-rose-400 border-rose-800/40 animate-pulse'
+                      ? 'bg-rose-950/80 text-rose-400 border-[#350A12] animate-pulse'
                       : match.status === 'upcoming'
-                      ? 'bg-[#1D173C]/60 text-[#B590FF] border-[#B590FF]/30'
+                      ? 'bg-[#1B181C]/60 text-[#B590FF] border-[#B590FF]/30'
                       : ((match.status || '').toLowerCase() === 'finished' || (match.status || '').toLowerCase() === 'completed' || (match as any).results_published)
-                      ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+                      ? 'bg-[#350A12]/80 text-[#C9A34E] border-emerald-500/40'
                       : match.status === 'cancelled'
                       ? 'bg-red-950/80 text-red-300 border-red-800/40'
                       : 'bg-gray-950 text-gray-400 border-gray-800'
@@ -1280,7 +1281,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 const imgUrl = getMatchBannerImage(match, banners, categories);
                 if (!imgUrl || imgUrl === 'N/A') return null;
                 return (
-                  <div className="relative w-full h-32 rounded-xl overflow-hidden bg-black/60 border border-purple-900/40">
+                  <div className="relative w-full h-32 rounded-xl overflow-hidden bg-black/60 border border-[#29252A]">
                     <img
                       key={`${match.id}_${imgUrl}`}
                       src={imgUrl}
@@ -1289,18 +1290,18 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       referrerPolicy="no-referrer"
                       onError={(e) => handleImageFallback(e, match.game || match.title)}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#120E2E] via-transparent to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#141215] via-transparent to-transparent" />
                   </div>
                 );
               })()}
 
               {/* Match Category / Type Badges Bar */}
-              <div className="flex flex-wrap items-center gap-1.5 my-1 bg-[#0D0A22] p-2 rounded-xl border border-purple-800/20">
-                <div className="bg-amber-950/60 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
-                  <Trophy className="w-3 h-3 text-amber-400 shrink-0" />
+              <div className="flex flex-wrap items-center gap-1.5 my-1 bg-[#0D0B0D] p-2 rounded-xl border border-[#29252A]/20">
+                <div className="bg-amber-950/60 text-[#C9A34E] border border-[#C9A34E]/30 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                  <Trophy className="w-3 h-3 text-[#C9A34E] shrink-0" />
                   <span>{match.game}</span>
                 </div>
-                <div className="ml-auto bg-indigo-950/80 text-indigo-200 border border-indigo-700/40 px-2.5 py-1 rounded-lg text-[9px] font-extrabold uppercase tracking-wider shadow-sm">
+                <div className="ml-auto bg-[#0D0B0D]/80 text-[#B0ACB0] border border-[#29252A] px-2.5 py-1 rounded-lg text-[9px] font-extrabold uppercase tracking-wider shadow-sm">
                   {match.matchType} • {match.map}
                 </div>
               </div>
@@ -1310,7 +1311,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 {/* Left Side: Prize & Start info */}
                 <div className="col-span-6 flex flex-col gap-1">
                   <div>
-                    <span className="text-[#FFA41C] font-extrabold text-[11px] sm:text-xs uppercase tracking-wide">
+                    <span className="text-[#C9A34E] font-extrabold text-[11px] sm:text-xs uppercase tracking-wide">
                       Prize Pool
                     </span>
                     <span className="text-[#FF3E6C] font-black text-sm ml-2">
@@ -1319,14 +1320,14 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   </div>
                   <div className="text-[#00FFB2] font-bold text-[11px] sm:text-xs flex items-center gap-1.5 flex-wrap">
                     <span>{formatStartTime(match.startTime)}</span>
-                    <span className="text-purple-800/80 font-normal">•</span>
+                    <span className="text-[#777278] font-normal">•</span>
                     <span>Fee: ₹{match.entryFee}</span>
                   </div>
                 </div>
 
                 {/* Middle: Players label */}
                 <div className="col-span-3 text-center">
-                  <span className="text-purple-300/40 font-extrabold text-[10px] sm:text-[11px] tracking-widest uppercase">
+                  <span className="text-[#B0ACB0]/40 font-extrabold text-[10px] sm:text-[11px] tracking-widest uppercase">
                     Players
                   </span>
                 </div>
@@ -1340,7 +1341,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               </div>
 
               {/* Spots Slider Progress Bar */}
-              <div className="w-full h-1 bg-purple-950/40 rounded-full overflow-hidden border border-purple-900/10">
+              <div className="w-full h-1 bg-[#0D0B0D]/40 rounded-full overflow-hidden border border-[#29252A]/10">
                 <div
                   className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full transition-all duration-300"
                   style={{ width: `${isNaN(Number((match.filledSlots / (match.maxSlots || 1)) * 100)) ? 0 : Math.min(100, Math.max(0, (match.filledSlots / (match.maxSlots || 1)) * 100))}%` }}
@@ -1349,9 +1350,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
               {/* Collapsible Registered Players List */}
               {match.participants && match.participants.length > 0 ? (
-                <div className="mt-2 p-3 rounded-xl bg-[#17123A] border border-purple-900/30">
+                <div className="mt-2 p-3 rounded-xl bg-[#171418] border border-[#29252A]/30">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] uppercase font-black tracking-wider text-[#FFA41C] flex items-center gap-1">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-[#C9A34E] flex items-center gap-1">
                       <Users className="w-3.5 h-3.5" />
                       <span>Registered Players ({match.participants.length})</span>
                     </span>
@@ -1371,13 +1372,13 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       return (
                         <div
                           key={(p as any).userId || (p as any).uid || pIdx}
-                          className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-[#0F0D24]/60 border border-purple-800/20 text-[10px]"
+                          className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-[#141215]/60 border border-[#29252A]/20 text-[10px]"
                         >
                           <div className="truncate pr-1">
-                            <span className="text-amber-400 font-extrabold mr-1 font-mono">#{slotNo}</span>
-                            <span className="text-purple-100 font-bold truncate">{username}</span>
+                            <span className="text-[#C9A34E] font-extrabold mr-1 font-mono">#{slotNo}</span>
+                            <span className="text-[#F5F5F5] font-bold truncate">{username}</span>
                           </div>
-                          <span className="text-purple-300/80 font-mono text-[9px] truncate max-w-[45%]" title={`IGN: ${gameIgn} | UID: ${gameUid}`}>
+                          <span className="text-[#B0ACB0]/80 font-mono text-[9px] truncate max-w-[45%]" title={`IGN: ${gameIgn} | UID: ${gameUid}`}>
                             {gameIgn !== 'N/A' ? gameIgn : (gameUid !== 'N/A' ? gameUid : 'N/A')}
                           </span>
                         </div>
@@ -1386,20 +1387,20 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="mt-2 p-2.5 rounded-xl bg-[#17123A]/40 border border-dashed border-purple-900/30 text-center text-purple-400/80 text-[10px]">
+                <div className="mt-2 p-2.5 rounded-xl bg-[#171418]/40 border border-dashed border-[#29252A]/30 text-center text-[#777278]/80 text-[10px]">
                   No players registered in slots yet. (0 / {match.maxSlots} filled)
                 </div>
               )}
 
               {/* Prize Distribution collapsible or inline display */}
               {((match.prizeDistribution && match.prizeDistribution.length > 0) || (match.perKillReward !== undefined && match.perKillReward > 0)) && (
-                <div className="mt-2 p-3 rounded-xl bg-[#130F2D] border border-purple-900/35">
+                <div className="mt-2 p-3 rounded-xl bg-[#171418] border border-[#29252A]/35">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] uppercase font-black tracking-wider text-emerald-400 flex items-center gap-1.5">
-                      <Award className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                    <span className="text-[10px] uppercase font-black tracking-wider text-[#C9A34E] flex items-center gap-1.5">
+                      <Award className="w-3.5 h-3.5 text-[#C9A34E] animate-pulse" />
                       <span>Prize Distribution</span>
                     </span>
-                    <span className="text-[9px] text-purple-400 font-bold">Custom Ranks</span>
+                    <span className="text-[9px] text-[#777278] font-bold">Custom Ranks</span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-28 overflow-y-auto custom-scrollbar pr-1">
                     {/* Display per kill reward badge if set and not explicitly in prizeDistribution array */}
@@ -1409,7 +1410,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     }) && (
                       <div className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-[10px]">
                         <span className="text-rose-300 font-extrabold truncate mr-1">Per Kill</span>
-                        <span className="text-emerald-400 font-black font-mono">₹{match.perKillReward}</span>
+                        <span className="text-[#C9A34E] font-black font-mono">₹{match.perKillReward}</span>
                       </div>
                     )}
 
@@ -1419,10 +1420,10 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       return (
                         <div
                           key={pIdx}
-                          className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-[#0C0820]/80 border border-purple-800/15 text-[10px]"
+                          className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-[#0D0B0D]/80 border border-[#29252A]/15 text-[10px]"
                         >
-                          <span className="text-purple-200 font-extrabold truncate mr-1">{rankLabel}</span>
-                          <span className="text-emerald-400 font-black font-mono">₹{prizeVal}</span>
+                          <span className="text-[#B0ACB0] font-extrabold truncate mr-1">{rankLabel}</span>
+                          <span className="text-[#C9A34E] font-black font-mono">₹{prizeVal}</span>
                         </div>
                       );
                     })}
@@ -1438,9 +1439,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 (match as any).require_access_code ||
                 ((match.accessCode || (match as any).access_code) && String(match.accessCode || (match as any).access_code).trim().length > 0)
               ) && (
-                <div className="bg-amber-950/30 border border-amber-900/40 p-2 rounded-xl flex items-center justify-between text-xs text-amber-300 font-bold px-3">
+                <div className="bg-amber-950/30 border border-amber-900/40 p-2 rounded-xl flex items-center justify-between text-xs text-[#C9A34E] font-bold px-3">
                   <span className="flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-amber-400" />
+                    <Key className="w-3.5 h-3.5 text-[#C9A34E]" />
                     <span>MATCH ACCESS CODE</span>
                   </span>
                   <div className="flex items-center gap-2">
@@ -1460,7 +1461,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           access_code: newCode
                         });
                       }}
-                      className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded text-[10px] font-bold border border-amber-500/40 transition cursor-pointer"
+                      className="px-2 py-0.5 bg-[#C9A34E]/20 hover:bg-[#C9A34E]/30 text-[#C9A34E] rounded text-[10px] font-bold border border-[#C9A34E]/30 transition cursor-pointer"
                       title="Regenerate Access Code"
                     >
                       Regenerate
@@ -1471,23 +1472,23 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
               {/* Inline Room Credentials Info banner if active */}
               {match.isRoomReleased && (
-                <div className="bg-emerald-950/30 border border-emerald-900/40 p-2 rounded-xl flex items-center justify-between text-xs text-emerald-400 font-bold px-3">
+                <div className="bg-[#350A12]/30 border border-emerald-900/40 p-2 rounded-xl flex items-center justify-between text-xs text-[#C9A34E] font-bold px-3">
                   <span className="flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-emerald-400" />
+                    <Key className="w-3.5 h-3.5 text-[#C9A34E]" />
                     <span>ROOM ID & PASS DISPATCHED</span>
                   </span>
-                  <span className="font-mono text-[11px] text-purple-200">
+                  <span className="font-mono text-[11px] text-[#B0ACB0]">
                     ID: {match.roomId} | PASS: {match.roomPassword}
                   </span>
                 </div>
               )}
 
               {/* Admin Action Bar (Primary actions: Status, Release Room, Winners, Edit, Duplicate, Danger Zone toggle) */}
-              <div className="border-t border-purple-950/50 pt-3 flex flex-wrap items-center justify-between gap-2.5 mt-0.5">
+              <div className="border-t border-[#29252A]/50 pt-3 flex flex-wrap items-center justify-between gap-2.5 mt-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   {/* Quick Change Status Dropdown */}
                   <div className="flex items-center gap-1">
-                    <span className="text-[10px] uppercase font-bold text-purple-400/80 hidden sm:inline">Status:</span>
+                    <span className="text-[10px] uppercase font-bold text-[#777278]/80 hidden sm:inline">Status:</span>
                     <select
                       value={((match.status || '').toLowerCase() === 'finished' || (match.status || '').toLowerCase() === 'completed' || (match as any).results_published) ? 'completed' : match.status}
                       onChange={(e) =>
@@ -1496,7 +1497,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           status: e.target.value as MatchStatus
                         })
                       }
-                      className="bg-[#19143D] hover:bg-[#201A4F] text-purple-200 text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-xl border border-purple-800/40 focus:outline-none transition cursor-pointer"
+                      className="bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-xl border border-[#29252A] focus:outline-none transition cursor-pointer"
                     >
                       <option value="upcoming">Upcoming</option>
                       <option value="live">Live</option>
@@ -1520,7 +1521,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       }}
                       className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 shadow-md cursor-pointer ${
                         match.isRoomReleased
-                          ? 'bg-[#19143D] text-emerald-400 border border-emerald-800/40'
+                          ? 'bg-[#171418] text-[#C9A34E] border border-[#29252A]'
                           : 'bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-500 text-black shadow-amber-500/10'
                       }`}
                     >
@@ -1534,9 +1535,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     <button
                       type="button"
                       onClick={() => setResultsListModalTournament(match)}
-                      className="px-3 py-1.5 rounded-xl text-[10.5px] font-black transition active:scale-95 flex items-center gap-1.5 border bg-gradient-to-r from-[#0d2a27] to-[#123834] text-emerald-300 border-emerald-500/50 hover:border-emerald-400 hover:text-emerald-200 shadow-lg shadow-emerald-950/40 cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl text-[10.5px] font-black transition active:scale-95 flex items-center gap-1.5 border bg-gradient-to-r from-[#0d2a27] to-[#123834] text-[#C9A34E] border-emerald-500/50 hover:border-emerald-400 hover:text-emerald-200 shadow-lg shadow-emerald-950/40 cursor-pointer"
                     >
-                      <Trophy className="w-4 h-4 text-amber-400" />
+                      <Trophy className="w-4 h-4 text-[#C9A34E]" />
                       <span>Result Out List</span>
                     </button>
                   ) : (
@@ -1591,7 +1592,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           setActiveReleaseRoomId(null);
                         }
                       }}
-                      className="px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 border bg-purple-900 hover:bg-purple-800 text-amber-300 border-purple-700/50 shadow-md shadow-purple-950/25 cursor-pointer"
+                      className="px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 border bg-[#141215] hover:bg-[#C9A34E] text-[#C9A34E] hover:text-black border-[#C9A34E]/40 shadow-md shadow-amber-950/25 cursor-pointer"
                     >
                       <Award className="w-3.5 h-3.5" />
                       <span>Publish Winners</span>
@@ -1604,20 +1605,20 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   <button
                     type="button"
                     onClick={() => handleOpenEditModal(match)}
-                    className="px-2.5 py-1.5 rounded-xl bg-[#19143D] hover:bg-[#231C54] text-purple-200 hover:text-white border border-purple-800/50 transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-xl bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
                     title="Edit Match Details"
                   >
-                    <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                    <Edit3 className="w-3.5 h-3.5 text-[#C9A34E]" />
                     <span>Edit</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleOpenDuplicateModal(match)}
-                    className="px-2.5 py-1.5 rounded-xl bg-[#19143D] hover:bg-[#231C54] text-purple-200 hover:text-white border border-purple-800/50 transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-xl bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
                     title="Create Duplicate Match"
                   >
-                    <Copy className="w-3.5 h-3.5 text-cyan-400" />
+                    <Copy className="w-3.5 h-3.5 text-[#C9A34E]" />
                     <span>Duplicate Match</span>
                   </button>
 
@@ -1627,21 +1628,21 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     onClick={() => setExpandedDangerZoneId(expandedDangerZoneId === match.id ? null : match.id)}
                     className={`px-2 py-1.5 rounded-xl border transition active:scale-95 flex items-center gap-1 text-[10px] font-bold cursor-pointer ${
                       expandedDangerZoneId === match.id
-                        ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-                        : 'bg-[#140F2E] hover:bg-rose-950/40 text-purple-400 hover:text-rose-300 border-purple-900/50 hover:border-rose-800/40'
+                        ? 'bg-rose-950/80 text-rose-300 border-[#E21B36]/60'
+                        : 'bg-[#141215] hover:bg-rose-950/40 text-[#777278] hover:text-rose-300 border-[#29252A]/50 hover:border-[#350A12]'
                     }`}
                     title="Destructive actions (Cancel, Delete)"
                   >
                     <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
                     <span className="hidden sm:inline">Danger Zone</span>
-                    <ChevronDown className={`w-3 h-3 transition-transform ${expandedDangerZoneId === match.id ? 'rotate-180 text-rose-300' : 'text-purple-400'}`} />
+                    <ChevronDown className={`w-3 h-3 transition-transform ${expandedDangerZoneId === match.id ? 'rotate-180 text-rose-300' : 'text-[#777278]'}`} />
                   </button>
                 </div>
               </div>
 
               {/* DANGER ZONE / DESTRUCTIVE ACTIONS PANEL (Clearly separated) */}
               {expandedDangerZoneId === match.id && (
-                <div className="mt-3 p-3 rounded-2xl bg-[#120B1C] border border-rose-900/50 space-y-2.5 animate-in slide-in-from-top-1">
+                <div className="mt-3 p-3 rounded-2xl bg-[#171418] border border-rose-900/50 space-y-2.5 animate-in slide-in-from-top-1">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] uppercase font-black tracking-wider text-rose-400 flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> Danger Zone / Destructive Actions
@@ -1649,7 +1650,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     <button
                       type="button"
                       onClick={() => setExpandedDangerZoneId(null)}
-                      className="p-1 text-purple-400 hover:text-white rounded-lg transition cursor-pointer"
+                      className="p-1 text-[#777278] hover:text-white rounded-lg transition cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -1661,10 +1662,10 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       <button
                         type="button"
                         onClick={() => setCancellingTournament(match)}
-                        className="px-3 py-1.5 rounded-xl bg-orange-950/80 hover:bg-orange-900 text-orange-300 border border-orange-700/50 text-[11px] font-extrabold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                        className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-[11px] font-black flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md shadow-rose-950/50"
                         title="Cancel Match & Refund"
                       >
-                        <XCircle className="w-3.5 h-3.5 text-orange-400" />
+                        <XCircle className="w-3.5 h-3.5 text-white" />
                         <span>Cancel Match & Refund Players</span>
                       </button>
                     )}
@@ -1673,10 +1674,10 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     <button
                       type="button"
                       onClick={() => setDeletingTournament(match)}
-                      className="px-3 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/50 text-[11px] font-extrabold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                      className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-[11px] font-black flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md shadow-rose-950/50"
                       title="Permanently Delete Match"
                     >
-                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <Trash2 className="w-3.5 h-3.5 text-white" />
                       <span>Permanently Delete Match</span>
                     </button>
                   </div>
@@ -1685,14 +1686,14 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
               {/* Inline Release Room Credentials Form Panel */}
               {activeReleaseRoomId === match.id && (
-                <div className="mt-3 p-4 rounded-xl bg-[#181338] border border-purple-850 space-y-3.5 animate-in slide-in-from-top-1">
+                <div className="mt-3 p-4 rounded-xl bg-[#141215] border border-[#29252A] space-y-3.5 animate-in slide-in-from-top-1">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                      <Key className="w-3.5 h-3.5 text-amber-400" /> Enter Game Room ID & Pass
+                    <h4 className="text-xs font-black text-[#C9A34E] flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-[#C9A34E]" /> Enter Game Room ID & Pass
                     </h4>
                     <button
                       onClick={() => setActiveReleaseRoomId(null)}
-                      className="text-purple-400 hover:text-white"
+                      className="text-[#777278] hover:text-white"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -1700,25 +1701,25 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[9px] uppercase font-bold text-purple-300 mb-1">Room ID</label>
+                      <label className="block text-[9px] uppercase font-bold text-[#B0ACB0] mb-1">Room ID</label>
                       <input
                         type="text"
                         required
                         value={inputRoomId}
                         onChange={(e) => setInputRoomId(e.target.value)}
                         placeholder="e.g. 894021"
-                        className="w-full bg-[#110D26] text-white text-xs font-mono p-2.5 rounded-xl border border-purple-800/50 focus:border-amber-400 focus:outline-none"
+                        className="w-full bg-[#141215] text-white text-xs font-mono p-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-[9px] uppercase font-bold text-purple-300 mb-1">Room Password</label>
+                      <label className="block text-[9px] uppercase font-bold text-[#B0ACB0] mb-1">Room Password</label>
                       <input
                         type="text"
                         required
                         value={inputRoomPass}
                         onChange={(e) => setInputRoomPass(e.target.value)}
                         placeholder="e.g. WINX7"
-                        className="w-full bg-[#110D26] text-white text-xs font-mono p-2.5 rounded-xl border border-purple-800/50 focus:border-amber-400 focus:outline-none"
+                        className="w-full bg-[#141215] text-white text-xs font-mono p-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
                       />
                     </div>
                   </div>
@@ -1726,7 +1727,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   <div className="flex items-center justify-end gap-2.5 pt-1">
                     <button
                       onClick={() => setActiveReleaseRoomId(null)}
-                      className="text-xs text-purple-300 hover:text-white font-medium"
+                      className="text-xs text-[#B0ACB0] hover:text-white font-medium"
                     >
                       Cancel
                     </button>
@@ -1738,7 +1739,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                         }
                       }}
                       disabled={!inputRoomId || !inputRoomPass}
-                      className="px-4 py-1.5 rounded-xl bg-[#FFA41C] text-black font-extrabold text-[11px] hover:bg-amber-400 disabled:opacity-50"
+                      className="px-4 py-1.5 rounded-xl bg-[#C9A34E] text-black font-extrabold text-[11px] hover:bg-amber-400 disabled:opacity-50"
                     >
                       Release Credentials
                     </button>
@@ -1748,21 +1749,21 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
               {/* Inline Publish Winners Form Panel */}
               {activePublishWinnersId === match.id && (
-                <div className="mt-3 p-4 rounded-xl bg-[#181338] border border-purple-850 space-y-3.5 max-h-80 overflow-y-auto custom-scrollbar animate-in slide-in-from-top-1">
+                <div className="mt-3 p-4 rounded-xl bg-[#141215] border border-[#29252A] space-y-3.5 max-h-80 overflow-y-auto custom-scrollbar animate-in slide-in-from-top-1">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-amber-300 flex items-center gap-1.5">
-                      <Award className="w-3.5 h-3.5 text-amber-400" /> Enter Rank & Kills For Players
+                    <h4 className="text-xs font-black text-[#C9A34E] flex items-center gap-1.5">
+                      <Award className="w-3.5 h-3.5 text-[#C9A34E]" /> Enter Rank & Kills For Players
                     </h4>
                     <button
                       onClick={() => setActivePublishWinnersId(null)}
-                      className="text-purple-400 hover:text-white"
+                      className="text-[#777278] hover:text-white"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
                   {(!participantResults || participantResults.length === 0) ? (
-                    <div className="p-4 text-center rounded-xl bg-[#110D26] text-purple-400 text-xs">
+                    <div className="p-4 text-center rounded-xl bg-[#141215] text-[#777278] text-xs">
                       No registered participants inside this match yet.
                     </div>
                   ) : (
@@ -1773,21 +1774,21 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
 
                           return (
-                            <div key={(p as any).userId || (p as any).uid || idx} className="p-3 rounded-xl bg-[#110D26] border border-purple-900/30 space-y-2.5 text-xs animate-in fade-in-30">
-                              <div className="flex items-center justify-between font-bold text-purple-200">
-                                <span className="text-amber-400">Slot #{slotNo} - {username}</span>
+                            <div key={(p as any).userId || (p as any).uid || idx} className="p-3 rounded-xl bg-[#141215] border border-[#29252A]/30 space-y-2.5 text-xs animate-in fade-in-30">
+                              <div className="flex items-center justify-between font-bold text-[#B0ACB0]">
+                                <span className="text-[#C9A34E]">Slot #{slotNo} - {username}</span>
                               </div>
 
                               {/* Directly display player registration details */}
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-[#080517] p-2 rounded-lg border border-purple-950/40 text-[10px] text-purple-300">
-                                <div className="truncate"><span className="text-purple-400 font-bold mr-1">Email:</span><span className="text-white font-medium">{userEmail}</span></div>
-                                <div className="truncate"><span className="text-purple-400 font-bold mr-1">Game UID:</span><span className="text-amber-300 font-mono font-bold">{gameUid}</span></div>
-                                <div className="truncate"><span className="text-purple-400 font-bold mr-1">IGN:</span><span className="text-white font-extrabold">{gameIgn}</span></div>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-[#0D0B0D] p-2 rounded-lg border border-[#29252A]/40 text-[10px] text-[#B0ACB0]">
+                                <div className="truncate"><span className="text-[#777278] font-bold mr-1">Email:</span><span className="text-white font-medium">{userEmail}</span></div>
+                                <div className="truncate"><span className="text-[#777278] font-bold mr-1">Game UID:</span><span className="text-[#C9A34E] font-mono font-bold">{gameUid}</span></div>
+                                <div className="truncate"><span className="text-[#777278] font-bold mr-1">IGN:</span><span className="text-white font-extrabold">{gameIgn}</span></div>
                               </div>
 
                               <div className="grid grid-cols-3 gap-1.5">
                                 <div>
-                                  <label className="block text-[8px] uppercase font-bold text-purple-400 mb-0.5">Rank</label>
+                                  <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Rank</label>
                                   <input
                                     type="number"
                                     min="1"
@@ -1805,11 +1806,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                                       };
                                       setParticipantResults(updated);
                                     }}
-                                    className="w-full bg-[#181338] text-white text-xs p-1.5 rounded-lg border border-purple-800/50 focus:outline-none"
+                                    className="w-full bg-[#141215] text-white text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-[8px] uppercase font-bold text-purple-400 mb-0.5">Kills</label>
+                                  <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Kills</label>
                                   <input
                                     type="number"
                                     min="0"
@@ -1827,11 +1828,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                                       };
                                       setParticipantResults(updated);
                                     }}
-                                    className="w-full bg-[#181338] text-white text-xs p-1.5 rounded-lg border border-purple-800/50 focus:outline-none"
+                                    className="w-full bg-[#141215] text-white text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none"
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-[8px] uppercase font-bold text-purple-400 mb-0.5">Prize Won (₹)</label>
+                                  <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Prize Won (₹)</label>
                                   <input
                                     type="number"
                                     min="0"
@@ -1841,7 +1842,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                                       updated[idx] = { ...updated[idx], prizeWon: isNaN(Number(e.target.value)) ? 0 : Number(e.target.value) };
                                       setParticipantResults(updated);
                                     }}
-                                    className="w-full bg-[#181338] text-emerald-400 font-bold text-xs p-1.5 rounded-lg border border-purple-800/50 focus:outline-none"
+                                    className="w-full bg-[#141215] text-[#C9A34E] font-bold text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none"
                                   />
                                 </div>
                               </div>
@@ -1850,11 +1851,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                         })}
                       </div>
 
-                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-purple-900/40">
-                        <div className="text-[10px] text-purple-400">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-[#29252A]">
+                        <div className="text-[10px] text-[#777278]">
                           {currentUser?.role === 'staff' ? (
-                            <span className="text-amber-300 font-semibold flex items-center gap-1">
-                              <ShieldAlert className="w-3 h-3 text-amber-400" /> Staff Mode: Submitting will create a pending Result Request for Admin verification.
+                            <span className="text-[#C9A34E] font-semibold flex items-center gap-1">
+                              <ShieldAlert className="w-3 h-3 text-[#C9A34E]" /> Staff Mode: Submitting will create a pending Result Request for Admin verification.
                             </span>
                           ) : (
                             <span>Admin Mode: You can publish directly or submit for verification.</span>
@@ -1865,7 +1866,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           <button
                             type="button"
                             onClick={() => setActivePublishWinnersId(null)}
-                            className="px-3 py-1.5 text-xs text-purple-300 hover:text-white font-medium"
+                            className="px-3 py-1.5 text-xs text-[#B0ACB0] hover:text-white font-medium"
                           >
                             Cancel
                           </button>
@@ -1921,7 +1922,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                                   setIsSubmittingResults(null);
                                 }
                               }}
-                              className="px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] bg-amber-500 hover:bg-amber-400 text-black shadow-md shadow-amber-950 flex items-center gap-1"
+                              className="px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] bg-[#C9A34E] hover:bg-amber-400 text-black shadow-md shadow-amber-950 flex items-center gap-1"
                             >
                               <span>Submit for Admin Verification</span>
                             </button>
@@ -1991,7 +1992,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                               className={`px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] ${
                                 isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())
                                   ? 'bg-gray-500 text-gray-200 cursor-not-allowed'
-                                  : 'bg-emerald-500 hover:bg-emerald-400 text-black'
+                                  : 'bg-[#C9A34E] hover:bg-emerald-400 text-black'
                               }`}
                             >
                               {isSubmittingResults === match.id ? 'Publishing...' : (['finished', 'completed'].includes((match.status || '').toLowerCase()) ? 'Published' : 'Publish Directly')}
@@ -2010,634 +2011,785 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       </div>
       )}
 
-      {/* Host New Tournament / Edit Tournament Modal */}
+      {/* Host New Tournament / Edit Tournament Full-Screen Expanded View */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-          <div className="w-full max-w-lg bg-[#130F29] border border-purple-850 rounded-3xl shadow-2xl max-h-[90vh] flex flex-col animate-in zoom-in-95">
-            
-            <div className="flex items-center justify-between p-5 pb-3 border-b border-purple-800/50 shrink-0">
-              <h3 className="text-base font-black text-amber-300 flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-amber-400" /> 
-                {editingTournament ? 'Edit Tournament Match' : 'Host New Tournament'}
-              </h3>
+        <div className="fixed inset-0 z-50 bg-[#0D0B0D] flex flex-col overflow-hidden animate-in fade-in duration-200">
+          
+          {/* Top Header Navigation Bar */}
+          <header className="sticky top-0 z-30 px-4 sm:px-6 lg:px-8 py-3.5 bg-[#141215] border-b border-[#29252A] flex items-center justify-between shrink-0 shadow-xl">
+            <div className="flex items-center gap-3 sm:gap-4">
               <button
                 type="button"
                 onClick={() => {
                   setShowCreateModal(false);
                   setEditingTournament(null);
                 }}
-                className="p-1.5 rounded-xl bg-purple-900/40 text-purple-300 hover:text-white"
+                className="p-2 sm:px-3.5 sm:py-2 rounded-xl bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] transition flex items-center gap-2 text-xs font-bold active:scale-95 cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <ArrowLeft className="w-4 h-4 text-[#C9A34E]" />
+                <span className="hidden sm:inline">Back to Matches</span>
               </button>
+              
+              <div className="h-6 w-px bg-[#29252A] hidden sm:block" />
+
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#350A12] border border-[#FF3048]/30 flex items-center justify-center text-[#C9A34E] shadow-inner">
+                  <Trophy className="w-4 h-4 text-[#C9A34E]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm sm:text-base font-black text-white tracking-tight">
+                      {editingTournament ? 'Edit Match' : 'Host New Tournament'}
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-[#C9A34E]/15 text-[#C9A34E] border border-[#C9A34E]/30">
+                      {editingTournament ? 'Editing Match' : 'Create Mode'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#B0ACB0] hidden md:block">
+                    Configure match parameters, image banner, timing, entry fees, custom rules, and prize payouts.
+                  </p>
+                </div>
+              </div>
             </div>
 
-            <form onSubmit={handleCreateSubmit} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-5 space-y-3.5 overflow-y-auto custom-scrollbar">
-              
-              {/* Game Category & Match Format */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Tournament Category <span className="text-amber-400">*</span>
-                  </label>
-                  <select
-                    required
-                    value={formGame || ''}
-                    onChange={(e) => setFormGame(e.target.value as GameCategory)}
-                    className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none font-bold"
-                  >
-                    {categoryOptions.map((c) => (
-                      <option key={c.id || c.name} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            {/* Quick Actions in Header */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingTournament(null);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] text-xs font-bold transition active:scale-95 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const form = document.getElementById('tournament-create-form') as HTMLFormElement;
+                  if (form) form.requestSubmit();
+                }}
+                className="px-4 sm:px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black text-xs font-black shadow-lg shadow-amber-950/40 transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-4 h-4 stroke-[3]" />
+                <span>{editingTournament ? 'Save Match Changes' : 'Publish Tournament'}</span>
+              </button>
+            </div>
+          </header>
 
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Match Format <span className="text-amber-400">*</span>
-                  </label>
-                  <select
-                    required
-                    value={formMatchType || 'Solo'}
-                    onChange={(e) => setFormMatchType(e.target.value as MatchType)}
-                    className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none font-bold"
-                  >
-                    <option value="Solo">Solo</option>
-                    <option value="Duo">Duo</option>
-                    <option value="Squad">Squad</option>
-                    <option value="1 VS 1">1 VS 1</option>
-                    <option value="2 VS 2">2 VS 2</option>
-                    <option value="4 VS 4">4 VS 4 CS</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* SAVED IMAGE / UPLOAD PICKER */}
-              <div className="space-y-1.5 bg-[#0F0D24] p-3 rounded-2xl border border-purple-800/40">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[10px] uppercase font-black text-amber-400 tracking-wider">
-                    TOURNAMENT IMAGE / BANNER
-                  </label>
-                  {formBannerUrl && (
-                    <span className="text-[9px] font-extrabold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-500/30 flex items-center gap-1">
-                      <Check className="w-3 h-3" /> Selected
-                    </span>
-                  )}
-                </div>
-
-                {formBannerUrl ? (
-                  <div className="relative flex items-center gap-3 bg-[#1A1538] p-2.5 rounded-xl border border-purple-700/50">
-                    <div className="w-20 h-14 rounded-lg overflow-hidden bg-black/60 shrink-0 border border-purple-600/40">
-                      <img
-                        src={formBannerUrl}
-                        alt="Selected Tournament Image"
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => handleImageFallback(e, formTitle || 'Tournament Banner')}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-black text-white uppercase truncate">
-                        {savedImages.find((img) => img.id === formSavedImageId || img.url === formBannerUrl)?.name || 'Tournament Banner'}
-                      </p>
-                      <p className="text-[10px] text-purple-300/70 truncate">
-                        Supabase Storage • Public URL
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setShowImagePickerModal(true)}
-                        className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase transition"
-                      >
-                        Library
-                      </button>
-                      <label className="px-2.5 py-1.5 rounded-lg bg-purple-900/60 hover:bg-purple-800 text-purple-200 border border-purple-700/50 text-[10px] font-black uppercase transition cursor-pointer">
-                        <Upload className="w-3 h-3 inline mr-1" />
-                        Upload
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleDirectTournamentImageUpload}
-                          className="hidden"
-                          disabled={isUploadingImage}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormBannerUrl('');
-                          setFormSavedImageId('');
-                        }}
-                        className="p-1.5 rounded-lg bg-purple-900/40 hover:bg-rose-900/60 text-purple-300 hover:text-rose-300 border border-purple-800/40 transition"
-                        title="Remove image"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowImagePickerModal(true)}
-                      className="py-3 px-3 rounded-xl border-2 border-dashed border-purple-700/60 hover:border-amber-400 bg-[#1A1538]/50 hover:bg-[#1A1538] text-purple-200 hover:text-white transition flex items-center justify-center gap-2 group text-xs font-bold"
-                    >
-                      <Plus className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-                      <span>+ Select Saved Image</span>
-                    </button>
-                    <label
-                      className={`py-3 px-3 rounded-xl border-2 border-dashed border-purple-700/60 hover:border-amber-400 bg-[#1A1538]/50 hover:bg-[#1A1538] text-purple-200 hover:text-white transition flex items-center justify-center gap-2 group text-xs font-bold cursor-pointer ${
-                        isUploadingImage ? 'opacity-50 cursor-wait' : ''
-                      }`}
-                    >
-                      {isUploadingImage ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                          <span>Uploading...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-                          <span>Upload New Image</span>
-                        </>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleDirectTournamentImageUpload}
-                        className="hidden"
-                        disabled={isUploadingImage}
-                      />
-                    </label>
-                  </div>
-                )}
-              </div>
-
-              {/* Tournament Title */}
-              <div>
-                <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                  Match Title <span className="text-amber-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  placeholder="e.g. #103 DUO PURGATORY NIGHT HUNT"
-                  className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:border-amber-400 focus:outline-none font-bold"
-                />
-              </div>
-
-              {/* Require Access Code (Optional Per Match) */}
-              <div className="bg-[#151030] border border-purple-800/40 rounded-xl p-3 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className={`p-1.5 rounded-lg border ${formRequireAccessCode ? 'bg-amber-400/10 border-amber-400/30 text-amber-400' : 'bg-purple-900/30 border-purple-800/30 text-purple-400'}`}>
-                      <Key className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <label htmlFor="toggle-require-access-code" className="text-xs font-black text-white cursor-pointer select-none">
-                          Require Access Code
-                        </label>
-                        <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${formRequireAccessCode ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-purple-900/40 text-purple-400'}`}>
-                          {formRequireAccessCode ? 'ON (Pass Protected)' : 'OFF (Normal Match)'}
-                        </span>
+          {/* Expanded Form Content */}
+          <form
+            id="tournament-create-form"
+            onSubmit={handleCreateSubmit}
+            className="flex-1 flex flex-col overflow-hidden"
+          >
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 lg:p-8 space-y-6">
+              <div className="max-w-7xl mx-auto space-y-6">
+                
+                {/* 2-Column Responsive Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  
+                  {/* LEFT COLUMN: Match Core Identity, Banner, Map & Timing */}
+                  <div className="lg:col-span-7 space-y-6">
+                    
+                    {/* Card 1: Basic Information & Format */}
+                    <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 space-y-4 shadow-lg">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+                        <h3 className="text-xs font-black text-[#C9A34E] uppercase tracking-wider flex items-center gap-2">
+                          <Layers className="w-4 h-4" /> 1. Match Identity & Format
+                        </h3>
+                        <span className="text-[10px] text-[#777278] font-bold">Required Details</span>
                       </div>
-                      <p className="text-[10px] text-purple-300/70">
-                        {formRequireAccessCode 
-                          ? 'Players must enter this unique secret code before joining this match.' 
-                          : 'Default: Anyone can join directly without entering an access code.'}
-                      </p>
-                    </div>
-                  </div>
 
-                  {/* Toggle Switch */}
-                  <label className="relative inline-flex items-center cursor-pointer ml-3 shrink-0">
-                    <input
-                      id="toggle-require-access-code"
-                      type="checkbox"
-                      checked={formRequireAccessCode}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setFormRequireAccessCode(checked);
-                        if (checked && (!formAccessCode || formAccessCode.trim() === '')) {
-                          setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase());
-                        }
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-purple-950 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-purple-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                  </label>
-                </div>
-
-                {/* Expanded Input only when Require Access Code is ON */}
-                {formRequireAccessCode && (
-                  <div className="pt-2 border-t border-purple-800/30 animate-in fade-in duration-150">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[10px] uppercase font-bold text-amber-300">
-                        Secret Access Code (Unique Entry Key) <span className="text-amber-400">*</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())}
-                        className="text-[10px] text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer flex items-center gap-1"
-                      >
-                        <RefreshCw className="w-2.5 h-2.5" />
-                        <span>Generate Random</span>
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      required={formRequireAccessCode}
-                      value={formAccessCode}
-                      onChange={(e) => setFormAccessCode(e.target.value)}
-                      placeholder="e.g. WINX7-K9Q2"
-                      className="w-full bg-[#1A1538] text-amber-300 text-xs font-mono font-bold tracking-wider p-2.5 rounded-xl border border-amber-700/50 focus:border-amber-400 focus:outline-none"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Map & Start Time */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Map Name <span className="text-amber-400">*</span>
-                  </label>
-                  <select
-                    value={
-                      freeFireMaps.some(m => m.toLowerCase() === formMap.toLowerCase())
-                        ? freeFireMaps.find(m => m.toLowerCase() === formMap.toLowerCase())
-                        : 'CUSTOM'
-                    }
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val !== 'CUSTOM') {
-                        setFormMap(val as MapType);
-                      }
-                    }}
-                    className="w-full bg-[#1A1538] text-amber-300 text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none focus:border-amber-400 font-bold cursor-pointer mb-1.5"
-                  >
-                    {freeFireMaps.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                    <option value="CUSTOM">✨ Custom Map Name...</option>
-                  </select>
-
-                  {(!freeFireMaps.some(m => m.toLowerCase() === formMap.toLowerCase()) || formMap === 'CUSTOM') && (
-                    <input
-                      type="text"
-                      required
-                      value={formMap === 'CUSTOM' ? '' : formMap}
-                      onChange={(e) => setFormMap(e.target.value as MapType)}
-                      placeholder="Enter custom map name..."
-                      className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:border-amber-400 focus:outline-none font-bold"
-                    />
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Start Date & Time <span className="text-amber-400">*</span>
-                  </label>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={formStartTime}
-                    onChange={(e) => {
-                      setIsTimeManual(true);
-                      setFormStartTime(e.target.value);
-                    }}
-                    className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none font-bold"
-                  />
-                </div>
-              </div>
-
-              {/* Entry Fee, Prize Pool, Kill Reward & Slots */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Entry (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formEntryFee !== '' && !isNaN(Number(formEntryFee)) ? formEntryFee : ''}
-                    onChange={(e) => setFormEntryFee(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
-                    className="w-full bg-[#1A1538] text-amber-300 font-bold text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Prize (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formPrizePool !== '' && !isNaN(Number(formPrizePool)) ? formPrizePool : ''}
-                    onChange={(e) => setFormPrizePool(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
-                    className="w-full bg-[#1A1538] text-emerald-400 font-bold text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Per Kill (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={formPerKillReward !== '' && !isNaN(Number(formPerKillReward)) ? formPerKillReward : ''}
-                    onChange={(e) => setFormPerKillReward(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
-                    className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
-                    Max Slots
-                  </label>
-                  <input
-                    type="number"
-                    min="2"
-                    value={formMaxSlots !== '' && !isNaN(Number(formMaxSlots)) ? formMaxSlots : ''}
-                    onChange={(e) => setFormMaxSlots(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
-                    className="w-full bg-[#1A1538] text-white text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Match Rules Selection & Edit */}
-              <div className="space-y-2 pt-1 border-t border-purple-800/50">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                  <label className="block text-[10px] uppercase font-bold text-purple-300">
-                    Match Rules
-                  </label>
-                  <select
-                    value={selectedRuleTemplateId}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSelectedRuleTemplateId(val);
-                      if (!val) return;
-                      const allPresets = [
-                        ...(matchRules || []),
-                        ...BUILTIN_RULE_PRESETS
-                      ];
-                      const selected = allPresets.find((r) => r.id === val);
-                      if (selected) {
-                        setFormRules(selected.rules);
-                      }
-                    }}
-                    className="bg-[#1A1538] text-amber-300 text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none focus:border-amber-400 font-bold cursor-pointer w-full sm:w-auto"
-                  >
-                    <option value="">-- Select Saved Rules Template --</option>
-                    {matchRules && matchRules.length > 0 && (
-                      <optgroup label="Saved Presets (By You)">
-                        {matchRules.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    <optgroup label="Standard Default Templates">
-                      {BUILTIN_RULE_PRESETS.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
-                </div>
-
-                <textarea
-                  rows={5}
-                  value={formRules}
-                  onChange={(e) => {
-                    setFormRules(e.target.value);
-                    setSelectedRuleTemplateId('');
-                  }}
-                  placeholder="Enter or select match rules template above..."
-                  className="w-full bg-[#1A1538] text-purple-100 text-xs p-2.5 rounded-xl border border-purple-800/50 focus:outline-none focus:border-amber-400 leading-relaxed font-mono"
-                />
-              </div>
-
-              {/* Prize Distribution (Ranks and Prize allocation) */}
-              <div className="space-y-2 pt-3 border-t border-purple-800/50">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <label className="block text-[10px] uppercase font-bold text-purple-300">
-                    Prize Distribution (by Rank)
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormPrizeDistribution([
-                          ...formPrizeDistribution,
-                          { rankRange: "1st Place", prize: 0 }
-                        ]);
-                      }}
-                      className="flex items-center gap-1 text-[10px] bg-yellow-950/40 text-yellow-400 hover:bg-yellow-900/40 border border-yellow-800/40 px-2.5 py-1 rounded font-black transition active:scale-95"
-                    >
-                      <span>🏆 1st Place</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormPrizeDistribution([
-                          ...formPrizeDistribution,
-                          { rankRange: "2nd Place", prize: 0 }
-                        ]);
-                      }}
-                      className="flex items-center gap-1 text-[10px] bg-slate-900/40 text-slate-300 hover:bg-slate-800/40 border border-slate-800/40 px-2.5 py-1 rounded font-black transition active:scale-95"
-                    >
-                      <span>🏅 2nd Place</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormPrizeDistribution([
-                          ...formPrizeDistribution,
-                          { rankRange: "3rd Place", prize: 0 }
-                        ]);
-                      }}
-                      className="flex items-center gap-1 text-[10px] bg-amber-950/40 text-amber-500 hover:bg-[#3d1a08] border border-amber-800/40 px-2.5 py-1 rounded font-black transition active:scale-95"
-                    >
-                      <span>🏅 3rd Place</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormPrizeDistribution([
-                          ...formPrizeDistribution,
-                          { rankRange: "Top 10", prize: 0 }
-                        ]);
-                      }}
-                      className="flex items-center gap-1 text-[10px] bg-purple-950/40 text-purple-300 hover:bg-purple-900/40 border border-purple-800/40 px-2.5 py-1 rounded font-black transition active:scale-95"
-                    >
-                      <span>🎖️ Top 10</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormPrizeDistribution([
-                          ...formPrizeDistribution,
-                          { rankRange: "Winner", prize: 0 }
-                        ]);
-                      }}
-                      className="flex items-center gap-1 text-[10px] bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/40 border border-emerald-800/40 px-2.5 py-1 rounded font-black transition active:scale-95"
-                    >
-                      <span>👑 Winner</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormPrizeDistribution([
-                          ...formPrizeDistribution,
-                          { rankRange: "Per Kill", prize: Number(formPerKillReward || 0) }
-                        ]);
-                      }}
-                      className="flex items-center gap-1 text-[10px] bg-rose-950/40 text-rose-300 hover:bg-rose-900/40 border border-rose-800/40 px-2.5 py-1 rounded font-black transition active:scale-95"
-                    >
-                      <span>🎯 Per Kill</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextRankNum = formPrizeDistribution.length + 1;
-                        let suggestedRange = `Rank ${nextRankNum}`;
-                        if (nextRankNum === 1) suggestedRange = "1st Place";
-                        else if (nextRankNum === 2) suggestedRange = "2nd Place";
-                        else if (nextRankNum === 3) suggestedRange = "3rd Place";
-                        
-                        setFormPrizeDistribution([
-                          ...formPrizeDistribution,
-                          { rankRange: suggestedRange, prize: 0 }
-                        ]);
-                      }}
-                      className="flex items-center gap-1 text-[10px] bg-purple-900/40 text-amber-400 hover:bg-purple-800/40 border border-purple-800/40 px-2 py-1 rounded font-black transition active:scale-95"
-                    >
-                      <Plus className="w-3 h-3 text-amber-400" />
-                      <span>Custom</span>
-                    </button>
-                  </div>
-                </div>
-
-                {formPrizeDistribution.length === 0 ? (
-                  <p className="text-[10px] text-purple-400 italic">
-                    No custom prize distribution set. (Default: Prizes are calculated based on Kill rewards, or manual results entry).
-                  </p>
-                ) : (
-                  <div className="space-y-1.5 max-h-[150px] overflow-y-auto p-2 bg-[#0B081B] rounded-xl border border-purple-900/60 custom-scrollbar">
-                    {formPrizeDistribution.map((item, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
+                      {/* Tournament Title */}
+                      <div>
+                        <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                          Match Title <span className="text-[#C9A34E]">*</span>
+                        </label>
                         <input
                           type="text"
-                          value={item.rankRange}
-                          onChange={(e) => {
-                            const updated = [...formPrizeDistribution];
-                            updated[idx] = { ...updated[idx], rankRange: e.target.value };
-                            setFormPrizeDistribution(updated);
-                          }}
-                          placeholder="e.g. 1st Place or Rank 4-10"
-                          className="flex-1 bg-[#151130] text-white text-[11px] px-2.5 py-1.5 rounded-lg border border-purple-850 focus:outline-none"
+                          required
+                          value={formTitle}
+                          onChange={(e) => setFormTitle(e.target.value)}
+                          placeholder="e.g. #103 DUO PURGATORY NIGHT HUNT"
+                          className="w-full bg-[#171418] text-white text-sm p-3 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-bold placeholder-[#777278] shadow-inner"
                         />
-                        <div className="flex items-center bg-[#151130] rounded-lg border border-purple-850 px-2.5 py-1.5 w-28">
-                          <span className="text-[10px] text-emerald-400 mr-1">₹</span>
-                          <input
-                            type="number"
-                            min="0"
-                            value={item.prize !== undefined && item.prize !== null && !isNaN(Number(item.prize)) ? item.prize : ''}
+                      </div>
+
+                      {/* Category & Match Format */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Tournament Category <span className="text-[#C9A34E]">*</span>
+                          </label>
+                          <select
+                            required
+                            value={formGame || ''}
+                            onChange={(e) => setFormGame(e.target.value as GameCategory)}
+                            className="w-full bg-[#171418] text-[#C9A34E] text-xs p-3 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-extrabold cursor-pointer"
+                          >
+                            {categoryOptions.map((c) => (
+                              <option key={c.id || c.name} value={c.name} className="bg-[#141215] text-white">
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Match Format <span className="text-[#C9A34E]">*</span>
+                          </label>
+                          <select
+                            required
+                            value={formMatchType || 'Solo'}
+                            onChange={(e) => setFormMatchType(e.target.value as MatchType)}
+                            className="w-full bg-[#171418] text-[#C9A34E] text-xs p-3 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-extrabold cursor-pointer"
+                          >
+                            <option value="Solo" className="bg-[#141215] text-white">Solo</option>
+                            <option value="Duo" className="bg-[#141215] text-white">Duo</option>
+                            <option value="Squad" className="bg-[#141215] text-white">Squad</option>
+                            <option value="1 VS 1" className="bg-[#141215] text-white">1 VS 1</option>
+                            <option value="2 VS 2" className="bg-[#141215] text-white">2 VS 2</option>
+                            <option value="4 VS 4" className="bg-[#141215] text-white">4 VS 4 CS</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Tournament Banner & Media */}
+                    <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 space-y-4 shadow-lg">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+                        <h3 className="text-xs font-black text-[#C9A34E] uppercase tracking-wider flex items-center gap-2">
+                          <ImageIcon className="w-4 h-4" /> 2. Tournament Banner & Media
+                        </h3>
+                        {formBannerUrl && (
+                          <span className="text-[10px] font-extrabold text-[#C9A34E] bg-[#350A12] px-2.5 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                            <Check className="w-3 h-3" /> Banner Selected
+                          </span>
+                        )}
+                      </div>
+
+                      {formBannerUrl ? (
+                        <div className="relative flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-[#171418] p-3.5 rounded-2xl border border-[#29252A]">
+                          <div className="w-full sm:w-36 h-24 rounded-xl overflow-hidden bg-black/60 shrink-0 border border-[#29252A] shadow-inner relative group">
+                            <img
+                              src={formBannerUrl}
+                              alt="Selected Tournament Image"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => handleImageFallback(e, formTitle || 'Tournament Banner')}
+                            />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-black text-white uppercase truncate">
+                              {savedImages.find((img) => img.id === formSavedImageId || img.url === formBannerUrl)?.name || 'Tournament Custom Banner'}
+                            </p>
+                            <p className="text-[11px] text-[#B0ACB0]/70 truncate mt-0.5">
+                              High-Resolution Match Artwork • Displayed on Player Feeds
+                            </p>
+                            <div className="flex items-center gap-2 mt-3">
+                              <button
+                                type="button"
+                                onClick={() => setShowImagePickerModal(true)}
+                                className="px-3 py-1.5 rounded-xl bg-[#C9A34E]/20 hover:bg-[#C9A34E]/30 text-[#C9A34E] border border-[#C9A34E]/40 text-[11px] font-black uppercase transition cursor-pointer"
+                              >
+                                Change from Library
+                              </button>
+                              <label className="px-3 py-1.5 rounded-xl bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] text-[11px] font-black uppercase transition cursor-pointer flex items-center gap-1">
+                                <Upload className="w-3 h-3" />
+                                <span>Upload New</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleDirectTournamentImageUpload}
+                                  className="hidden"
+                                  disabled={isUploadingImage}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormBannerUrl('');
+                                  setFormSavedImageId('');
+                                }}
+                                className="p-1.5 rounded-xl bg-[#1B181C] hover:bg-[#350A12] text-[#B0ACB0] hover:text-rose-300 border border-[#29252A] transition cursor-pointer"
+                                title="Remove banner"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowImagePickerModal(true)}
+                            className="py-4 px-4 rounded-2xl border-2 border-dashed border-[#29252A] hover:border-[#C9A34E] bg-[#171418]/60 hover:bg-[#171418] text-[#B0ACB0] hover:text-white transition flex flex-col items-center justify-center gap-2 group cursor-pointer"
+                          >
+                            <div className="w-10 h-10 rounded-xl bg-[#C9A34E]/10 border border-[#C9A34E]/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                              <ImageIcon className="w-5 h-5 text-[#C9A34E]" />
+                            </div>
+                            <span className="text-xs font-black text-white">+ Select from Saved Images</span>
+                            <span className="text-[10px] text-[#777278]">Choose from previously uploaded presets</span>
+                          </button>
+
+                          <label
+                            className={`py-4 px-4 rounded-2xl border-2 border-dashed border-[#29252A] hover:border-[#C9A34E] bg-[#171418]/60 hover:bg-[#171418] text-[#B0ACB0] hover:text-white transition flex flex-col items-center justify-center gap-2 group cursor-pointer ${
+                              isUploadingImage ? 'opacity-50 cursor-wait' : ''
+                            }`}
+                          >
+                            {isUploadingImage ? (
+                              <>
+                                <div className="w-10 h-10 rounded-xl bg-amber-400/10 flex items-center justify-center">
+                                  <div className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                </div>
+                                <span className="text-xs font-black text-amber-400">Uploading File...</span>
+                                <span className="text-[10px] text-[#777278]">Saving to Storage</span>
+                              </>
+                            ) : (
+                              <>
+                                <div className="w-10 h-10 rounded-xl bg-[#1B181C] border border-[#29252A] flex items-center justify-center group-hover:scale-110 transition-transform">
+                                  <Upload className="w-5 h-5 text-[#C9A34E]" />
+                                </div>
+                                <span className="text-xs font-black text-white">Upload New Image</span>
+                                <span className="text-[10px] text-[#777278]">PNG, JPG or WEBP banner file</span>
+                              </>
+                            )}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleDirectTournamentImageUpload}
+                              className="hidden"
+                              disabled={isUploadingImage}
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card 3: Map & Start Timing */}
+                    <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 space-y-4 shadow-lg">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+                        <h3 className="text-xs font-black text-[#C9A34E] uppercase tracking-wider flex items-center gap-2">
+                          <Calendar className="w-4 h-4" /> 3. Map & Schedule
+                        </h3>
+                        <span className="text-[10px] text-[#777278] font-bold">Location & Time</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Map Selector */}
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Map Name <span className="text-[#C9A34E]">*</span>
+                          </label>
+                          <select
+                            value={
+                              freeFireMaps.some(m => m.toLowerCase() === formMap.toLowerCase())
+                                ? freeFireMaps.find(m => m.toLowerCase() === formMap.toLowerCase())
+                                : 'CUSTOM'
+                            }
                             onChange={(e) => {
-                              const val = e.target.value === '' || isNaN(Number(e.target.value)) ? 0 : Number(e.target.value);
-                              const updated = [...formPrizeDistribution];
-                              updated[idx] = { ...updated[idx], prize: val };
-                              setFormPrizeDistribution(updated);
+                              const val = e.target.value;
+                              if (val !== 'CUSTOM') {
+                                setFormMap(val as MapType);
+                              }
                             }}
-                            placeholder="Prize"
-                            className="bg-transparent text-emerald-400 font-bold text-[11px] w-full focus:outline-none"
+                            className="w-full bg-[#171418] text-[#C9A34E] text-xs p-3 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E] font-bold cursor-pointer mb-2"
+                          >
+                            {freeFireMaps.map((m) => (
+                              <option key={m} value={m} className="bg-[#141215] text-white">
+                                {m}
+                              </option>
+                            ))}
+                            <option value="CUSTOM" className="bg-[#141215] text-[#C9A34E]">✨ Custom Map Name...</option>
+                          </select>
+
+                          {(!freeFireMaps.some(m => m.toLowerCase() === formMap.toLowerCase()) || formMap === 'CUSTOM') && (
+                            <input
+                              type="text"
+                              required
+                              value={formMap === 'CUSTOM' ? '' : formMap}
+                              onChange={(e) => setFormMap(e.target.value as MapType)}
+                              placeholder="Enter custom map name..."
+                              className="w-full bg-[#171418] text-white text-xs p-3 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-bold"
+                            />
+                          )}
+                        </div>
+
+                        {/* Start Time */}
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Start Date & Time <span className="text-[#C9A34E]">*</span>
+                          </label>
+                          <input
+                            type="datetime-local"
+                            required
+                            value={formStartTime}
+                            onChange={(e) => {
+                              setIsTimeManual(true);
+                              setFormStartTime(e.target.value);
+                            }}
+                            className="w-full bg-[#171418] text-white text-xs p-3 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-bold"
+                          />
+
+                          {/* Quick Timing Presets */}
+                          <div className="flex items-center gap-1.5 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsTimeManual(true);
+                                const d = new Date();
+                                d.setHours(d.getHours() + 1);
+                                setFormStartTime(formatForDateTimeLocal(d.toISOString()));
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-[#C9A34E] text-[10px] font-bold border border-[#29252A] transition cursor-pointer"
+                            >
+                              +1 Hour
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsTimeManual(true);
+                                const d = new Date();
+                                d.setHours(d.getHours() + 2);
+                                setFormStartTime(formatForDateTimeLocal(d.toISOString()));
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-[#C9A34E] text-[10px] font-bold border border-[#29252A] transition cursor-pointer"
+                            >
+                              +2 Hours
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsTimeManual(true);
+                                const d = new Date();
+                                d.setDate(d.getDate() + 1);
+                                setFormStartTime(formatForDateTimeLocal(d.toISOString()));
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-[#C9A34E] text-[10px] font-bold border border-[#29252A] transition cursor-pointer"
+                            >
+                              Tomorrow
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 4: Access Code & Password Protection */}
+                    <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 space-y-3.5 shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-xl border ${formRequireAccessCode ? 'bg-amber-400/10 border-amber-400/30 text-[#C9A34E]' : 'bg-[#1B181C] border-[#29252A] text-[#777278]'}`}>
+                            <Key className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <label htmlFor="toggle-require-access-code" className="text-xs font-black text-white cursor-pointer select-none">
+                                Require Access Code
+                              </label>
+                              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${formRequireAccessCode ? 'bg-[#C9A34E]/20 text-[#C9A34E] border border-[#C9A34E]/30' : 'bg-[#1B181C] text-[#777278]'}`}>
+                                {formRequireAccessCode ? 'ON (Pass Protected)' : 'OFF (Public Entry)'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#B0ACB0]/70 mt-0.5">
+                              {formRequireAccessCode 
+                                ? 'Players must enter this unique secret key before registering or joining this match.' 
+                                : 'Default: Any verified player can join directly without requiring an entry code.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Toggle Switch */}
+                        <label className="relative inline-flex items-center cursor-pointer ml-3 shrink-0">
+                          <input
+                            id="toggle-require-access-code"
+                            type="checkbox"
+                            checked={formRequireAccessCode}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setFormRequireAccessCode(checked);
+                              if (checked && (!formAccessCode || formAccessCode.trim() === '')) {
+                                setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase());
+                              }
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-[#0D0B0D] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[#29252A] after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#C9A34E]"></div>
+                        </label>
+                      </div>
+
+                      {formRequireAccessCode && (
+                        <div className="pt-3 border-t border-[#29252A] animate-in fade-in duration-150">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="block text-[11px] uppercase font-bold text-[#C9A34E]">
+                              Secret Access Code (Unique Entry Key) <span className="text-[#C9A34E]">*</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setFormAccessCode('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())}
+                              className="text-[11px] text-[#C9A34E] hover:underline font-bold cursor-pointer flex items-center gap-1"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              <span>Generate Random Key</span>
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            required={formRequireAccessCode}
+                            value={formAccessCode}
+                            onChange={(e) => setFormAccessCode(e.target.value)}
+                            placeholder="e.g. WINX7-K9Q2"
+                            className="w-full bg-[#171418] text-[#C9A34E] text-xs font-mono font-bold tracking-wider p-3 rounded-xl border border-amber-700/50 focus:border-[#C9A34E] focus:outline-none"
                           />
                         </div>
+                      )}
+                    </div>
+
+                  </div>
+
+                  {/* RIGHT COLUMN: Economics, Prize Distribution & Rules Preset */}
+                  <div className="lg:col-span-5 space-y-6">
+                    
+                    {/* Card 5: Economics & Slots */}
+                    <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 space-y-4 shadow-lg">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+                        <h3 className="text-xs font-black text-[#C9A34E] uppercase tracking-wider flex items-center gap-2">
+                          <DollarSign className="w-4 h-4" /> 4. Economics & Slots
+                        </h3>
+                        <span className="text-[10px] text-[#777278] font-bold">Fees & Rewards</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3.5">
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Entry Fee (₹)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#C9A34E]">₹</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={formEntryFee !== '' && !isNaN(Number(formEntryFee)) ? formEntryFee : ''}
+                              onChange={(e) => setFormEntryFee(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
+                              className="w-full bg-[#171418] text-[#C9A34E] font-extrabold text-sm pl-7 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Prize Pool (₹)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#C9A34E]">₹</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={formPrizePool !== '' && !isNaN(Number(formPrizePool)) ? formPrizePool : ''}
+                              onChange={(e) => setFormPrizePool(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
+                              className="w-full bg-[#171418] text-[#C9A34E] font-extrabold text-sm pl-7 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Per Kill (₹)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-white">₹</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={formPerKillReward !== '' && !isNaN(Number(formPerKillReward)) ? formPerKillReward : ''}
+                              onChange={(e) => setFormPerKillReward(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
+                              className="w-full bg-[#171418] text-white font-bold text-sm pl-7 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                            Max Slots
+                          </label>
+                          <div className="relative">
+                            <Users className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#777278]" />
+                            <input
+                              type="number"
+                              min="2"
+                              value={formMaxSlots !== '' && !isNaN(Number(formMaxSlots)) ? formMaxSlots : ''}
+                              onChange={(e) => setFormMaxSlots(e.target.value === '' || isNaN(Number(e.target.value)) ? '' : Number(e.target.value))}
+                              className="w-full bg-[#171418] text-white font-bold text-sm pl-8 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Revenue Summary Calculated Widget */}
+                      <div className="p-3 bg-[#171418] rounded-xl border border-[#29252A] flex items-center justify-between text-xs">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] uppercase font-bold text-[#777278] block">Max Revenue Potential</span>
+                          <span className="font-extrabold text-white">
+                            ₹{(Number(formEntryFee || 0) * Number(formMaxSlots || 0)).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="h-6 w-px bg-[#29252A]" />
+                        <div className="space-y-0.5 text-right">
+                          <span className="text-[10px] uppercase font-bold text-[#777278] block">Guaranteed Prize</span>
+                          <span className="font-extrabold text-[#C9A34E]">
+                            ₹{Number(formPrizePool || 0).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 6: Prize Distribution */}
+                    <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 space-y-4 shadow-lg">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+                        <h3 className="text-xs font-black text-[#C9A34E] uppercase tracking-wider flex items-center gap-2">
+                          <Award className="w-4 h-4" /> 5. Prize Distribution
+                        </h3>
                         <button
                           type="button"
                           onClick={() => {
-                            setFormPrizeDistribution(formPrizeDistribution.filter((_, i) => i !== idx));
+                            const pool = Number(formPrizePool || 0);
+                            if (pool <= 0) {
+                              alert("Please enter a total prize pool amount first.");
+                              return;
+                            }
+                            setFormPrizeDistribution([
+                              { rankRange: '1st Place', prize: Math.round(pool * 0.5) },
+                              { rankRange: '2nd Place', prize: Math.round(pool * 0.3) },
+                              { rankRange: '3rd Place', prize: Math.round(pool * 0.2) }
+                            ]);
                           }}
-                          className="p-2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/20 rounded-lg transition"
+                          className="text-[11px] text-[#C9A34E] hover:underline font-extrabold cursor-pointer"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          Auto 50/30/20%
                         </button>
                       </div>
-                    ))}
-                    
-                    {/* Auto calculation checks / quick presets */}
-                    <div className="flex items-center justify-between pt-1 border-t border-purple-900/40 text-[9px] text-purple-400">
-                      <span>Total custom rank prizes: ₹{formPrizeDistribution.reduce((acc, curr) => acc + (curr.prize || 0), 0)}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const pool = Number(formPrizePool || 0);
-                          if (pool <= 0) {
-                            alert("Please enter a total prize pool amount first.");
-                            return;
-                          }
-                          // Quick distribution of prize pool: 1st gets 50%, 2nd gets 30%, 3rd gets 20%
-                          setFormPrizeDistribution([
-                            { rankRange: '1st Place', prize: Math.round(pool * 0.5) },
-                            { rankRange: '2nd Place', prize: Math.round(pool * 0.3) },
-                            { rankRange: '3rd Place', prize: Math.round(pool * 0.2) }
-                          ]);
-                        }}
-                        className="text-amber-400 hover:underline font-bold"
-                      >
-                        Auto 50%/30%/20% Preset
-                      </button>
+
+                      {/* Rank Quick Add Chips */}
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setFormPrizeDistribution([...formPrizeDistribution, { rankRange: "1st Place", prize: 0 }])}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-amber-950/40 text-amber-400 hover:bg-amber-900/40 border border-amber-800/40 transition active:scale-95 cursor-pointer"
+                        >
+                          🏆 1st
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormPrizeDistribution([...formPrizeDistribution, { rankRange: "2nd Place", prize: 0 }])}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition active:scale-95 cursor-pointer"
+                        >
+                          🏅 2nd
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormPrizeDistribution([...formPrizeDistribution, { rankRange: "3rd Place", prize: 0 }])}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition active:scale-95 cursor-pointer"
+                        >
+                          🥉 3rd
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormPrizeDistribution([...formPrizeDistribution, { rankRange: "Top 10", prize: 0 }])}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition active:scale-95 cursor-pointer"
+                        >
+                          🎖️ Top 10
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormPrizeDistribution([...formPrizeDistribution, { rankRange: "Per Kill", prize: Number(formPerKillReward || 0) }])}
+                          className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-[#350A12] text-rose-300 hover:bg-[#4A0D16] border border-[#350A12] transition active:scale-95 cursor-pointer"
+                        >
+                          🎯 Per Kill
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextRankNum = formPrizeDistribution.length + 1;
+                            setFormPrizeDistribution([...formPrizeDistribution, { rankRange: `Rank ${nextRankNum}`, prize: 0 }]);
+                          }}
+                          className="px-2 py-1 rounded-lg text-[10px] font-black bg-[#1B181C] text-[#C9A34E] hover:bg-[#C9A34E] hover:text-black border border-[#C9A34E]/30 transition active:scale-95 cursor-pointer flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" /> Custom
+                        </button>
+                      </div>
+
+                      {/* Rank rows list */}
+                      {formPrizeDistribution.length === 0 ? (
+                        <p className="text-xs text-[#777278] italic p-3 bg-[#171418] rounded-xl border border-dashed border-[#29252A] text-center">
+                          No custom rank prizes added. Add rank tiers using the buttons above.
+                        </p>
+                      ) : (
+                        <div className="space-y-2 max-h-[220px] overflow-y-auto p-2.5 bg-[#171418] rounded-xl border border-[#29252A] custom-scrollbar">
+                          {formPrizeDistribution.map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={item.rankRange}
+                                onChange={(e) => {
+                                  const updated = [...formPrizeDistribution];
+                                  updated[idx] = { ...updated[idx], rankRange: e.target.value };
+                                  setFormPrizeDistribution(updated);
+                                }}
+                                placeholder="e.g. 1st Place or Rank 4-10"
+                                className="flex-1 bg-[#141215] text-white text-xs px-3 py-2 rounded-lg border border-[#29252A] focus:outline-none"
+                              />
+                              <div className="flex items-center bg-[#141215] rounded-lg border border-[#29252A] px-2.5 py-2 w-32">
+                                <span className="text-xs text-[#C9A34E] mr-1 font-bold">₹</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={item.prize !== undefined && item.prize !== null && !isNaN(Number(item.prize)) ? item.prize : ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' || isNaN(Number(e.target.value)) ? 0 : Number(e.target.value);
+                                    const updated = [...formPrizeDistribution];
+                                    updated[idx] = { ...updated[idx], prize: val };
+                                    setFormPrizeDistribution(updated);
+                                  }}
+                                  placeholder="Prize"
+                                  className="bg-transparent text-[#C9A34E] font-extrabold text-xs w-full focus:outline-none"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setFormPrizeDistribution(formPrizeDistribution.filter((_, i) => i !== idx))}
+                                className="p-2 text-rose-300 hover:text-white bg-rose-600/20 hover:bg-rose-600 rounded-lg border border-rose-500/30 transition cursor-pointer"
+                                title="Remove rank"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                          
+                          <div className="flex items-center justify-between pt-2 border-t border-[#29252A] text-[10px] text-[#B0ACB0] font-bold">
+                            <span>Allocated: ₹{formPrizeDistribution.reduce((acc, curr) => acc + (curr.prize || 0), 0)}</span>
+                            <span className={Number(formPrizePool || 0) >= formPrizeDistribution.reduce((acc, curr) => acc + (curr.prize || 0), 0) ? 'text-[#C9A34E]' : 'text-[#FF3048]'}>
+                              Pool: ₹{formPrizePool || 0}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
+
+                    {/* Card 7: Match Rules Preset */}
+                    <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 space-y-4 shadow-lg">
+                      <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+                        <h3 className="text-xs font-black text-[#C9A34E] uppercase tracking-wider flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4" /> 6. Match Rules & Presets
+                        </h3>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <select
+                          value={selectedRuleTemplateId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSelectedRuleTemplateId(val);
+                            if (!val) return;
+                            const allPresets = [
+                              ...(matchRules || []),
+                              ...BUILTIN_RULE_PRESETS
+                            ];
+                            const selected = allPresets.find((r) => r.id === val);
+                            if (selected) {
+                              setFormRules(selected.rules);
+                            }
+                          }}
+                          className="w-full bg-[#171418] text-[#C9A34E] text-xs p-3 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E] font-extrabold cursor-pointer"
+                        >
+                          <option value="">-- Select Saved Rules Template --</option>
+                          {matchRules && matchRules.length > 0 && (
+                            <optgroup label="Saved Presets (By You)">
+                              {matchRules.map((r) => (
+                                <option key={r.id} value={r.id} className="bg-[#141215] text-white">
+                                  {r.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          <optgroup label="Standard Default Templates">
+                            {BUILTIN_RULE_PRESETS.map((r) => (
+                              <option key={r.id} value={r.id} className="bg-[#141215] text-white">
+                                {r.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+
+                        <textarea
+                          rows={6}
+                          value={formRules}
+                          onChange={(e) => {
+                            setFormRules(e.target.value);
+                            setSelectedRuleTemplateId('');
+                          }}
+                          placeholder="Enter or select match rules template above..."
+                          className="w-full bg-[#171418] text-[#F5F5F5] text-xs p-3 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E] leading-relaxed font-mono shadow-inner"
+                        />
+                      </div>
+                    </div>
+
                   </div>
-                )}
-              </div>
+
+                </div>
 
               </div>
+            </div>
 
-              <div className="p-5 pt-3 border-t border-purple-800/50 flex justify-end gap-2 shrink-0 bg-[#130F29] rounded-b-3xl">
+            {/* Sticky Bottom Action Footer */}
+            <footer className="sticky bottom-0 z-30 px-4 sm:px-8 py-3.5 bg-[#141215]/95 backdrop-blur-md border-t border-[#29252A] flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0 shadow-2xl">
+              <div className="flex items-center gap-3 text-xs text-[#B0ACB0] w-full sm:w-auto justify-between sm:justify-start">
+                <span className="font-extrabold text-white truncate max-w-[200px]">
+                  {formTitle ? formTitle.toUpperCase() : 'Untitled Match'}
+                </span>
+                <span className="text-[#777278]">•</span>
+                <span className="text-[#C9A34E] font-extrabold">₹{formEntryFee || 0} Entry</span>
+                <span className="text-[#777278]">•</span>
+                <span className="text-[#C9A34E] font-extrabold">₹{formPrizePool || 0} Prize</span>
+                <span className="text-[#777278]">•</span>
+                <span className="text-white font-bold">{formMaxSlots || 48} Slots</span>
+              </div>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                 <button
                   type="button"
                   onClick={() => {
                     setShowCreateModal(false);
                     setEditingTournament(null);
                   }}
-                  className="px-3 py-2 rounded-xl bg-purple-950 text-purple-300 text-xs font-bold"
+                  className="px-5 py-2.5 rounded-xl bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white text-xs font-bold transition active:scale-95 cursor-pointer"
                 >
-                  Cancel
+                  Cancel & Discard
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-black shadow-lg shadow-amber-400/20"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black text-xs font-black shadow-lg shadow-amber-950/40 transition active:scale-95 flex items-center gap-2 cursor-pointer"
                 >
-                  {editingTournament ? 'Save Match Changes' : 'Publish Match'}
+                  <Trophy className="w-4 h-4" />
+                  <span>{editingTournament ? 'Save Match Changes' : 'Publish Tournament'}</span>
                 </button>
               </div>
+            </footer>
 
-            </form>
-          </div>
+          </form>
+
         </div>
       )}
 
       {/* Manage Categories Modal */}
       {showCategoryModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-          <div className="w-full max-w-lg bg-[#130F29] border border-purple-850 rounded-3xl p-5 space-y-4 shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between pb-3 border-b border-purple-800/50">
-              <h3 className="text-base font-black text-amber-300 flex items-center gap-2">
-                <Tag className="w-5 h-5 text-amber-400" /> Manage Tournament Categories
+          <div className="w-full max-w-lg bg-[#0D0B0D] border border-[#29252A] rounded-3xl p-5 space-y-4 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+              <h3 className="text-base font-black text-[#C9A34E] flex items-center gap-2">
+                <Tag className="w-5 h-5 text-[#C9A34E]" /> Manage Tournament Categories
               </h3>
               <button
                 onClick={() => {
@@ -2646,22 +2798,22 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   setCatNameInput('');
                   setCatDescInput('');
                 }}
-                className="p-1.5 rounded-xl bg-purple-900/40 text-purple-300 hover:text-white"
+                className="p-1.5 rounded-xl bg-[#1B181C] text-[#B0ACB0] hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Create/Edit Category Form */}
-            <form onSubmit={handleSaveCategorySubmit} className="p-3.5 rounded-2xl bg-[#1A1538] border border-purple-800/40 space-y-3">
-              <h4 className="text-xs font-black text-purple-200 flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-amber-400" />
+            <form onSubmit={handleSaveCategorySubmit} className="p-3.5 rounded-2xl bg-[#141215] border border-[#29252A] space-y-3">
+              <h4 className="text-xs font-black text-[#B0ACB0] flex items-center gap-1.5">
+                <Plus className="w-4 h-4 text-[#C9A34E]" />
                 {editingCategory ? 'Edit Category' : 'Create New Category'}
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
+                  <label className="block text-[10px] uppercase font-bold text-[#B0ACB0] mb-1">
                     Category Name
                   </label>
                   <input
@@ -2670,12 +2822,12 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     value={catNameInput}
                     onChange={(e) => setCatNameInput(e.target.value)}
                     placeholder="e.g. SQUAD BR, CS SQUAD, 1 VS 1"
-                    className="w-full bg-[#130F29] text-white text-xs p-2.5 rounded-xl border border-purple-700/60 focus:border-amber-400 focus:outline-none"
+                    className="w-full bg-[#0D0B0D] text-white text-xs p-2.5 rounded-xl border border-[#29252A]/60 focus:border-[#C9A34E] focus:outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase font-bold text-purple-300 mb-1">
+                  <label className="block text-[10px] uppercase font-bold text-[#B0ACB0] mb-1">
                     Description
                   </label>
                   <input
@@ -2683,18 +2835,18 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     value={catDescInput}
                     onChange={(e) => setCatDescInput(e.target.value)}
                     placeholder="e.g. 4v4 Clash Squad Matches"
-                    className="w-full bg-[#130F29] text-white text-xs p-2.5 rounded-xl border border-purple-700/60 focus:border-amber-400 focus:outline-none"
+                    className="w-full bg-[#0D0B0D] text-white text-xs p-2.5 rounded-xl border border-[#29252A]/60 focus:border-[#C9A34E] focus:outline-none"
                   />
                 </div>
               </div>
 
               <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-purple-200">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-[#B0ACB0]">
                   <input
                     type="checkbox"
                     checked={catActiveInput}
                     onChange={(e) => setCatActiveInput(e.target.checked)}
-                    className="rounded bg-[#130F29] border-purple-700 text-amber-400 focus:ring-amber-400"
+                    className="rounded bg-[#0D0B0D] border-[#29252A] text-[#C9A34E] focus:ring-amber-400"
                   />
                   <span>Active in App Category Bar</span>
                 </label>
@@ -2708,7 +2860,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                         setCatNameInput('');
                         setCatDescInput('');
                       }}
-                      className="px-2.5 py-1 rounded-xl bg-purple-950 text-purple-300 text-xs font-bold"
+                      className="px-2.5 py-1 rounded-xl bg-[#0D0B0D] text-[#B0ACB0] text-xs font-bold"
                     >
                       Cancel
                     </button>
@@ -2725,30 +2877,30 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
             {/* List of Existing Categories */}
             <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-              <p className="text-[10px] uppercase font-bold text-purple-400">All Active & System Categories</p>
+              <p className="text-[10px] uppercase font-bold text-[#777278]">All Active & System Categories</p>
               {categories.map((cat) => (
                 <div
                   key={cat.id}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-[#1A1538] border border-purple-800/30 text-xs"
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-[#141215] border border-[#29252A] text-xs"
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-amber-300">{cat.name}</span>
+                      <span className="font-extrabold text-[#C9A34E]">{cat.name}</span>
                       <span
                         className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                          cat.isActive ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/40' : 'bg-gray-950 text-gray-400'
+                          cat.isActive ? 'bg-[#350A12] text-[#C9A34E] border border-[#29252A]' : 'bg-gray-950 text-gray-400'
                         }`}
                       >
                         {cat.isActive ? 'Active' : 'Disabled'}
                       </span>
                     </div>
-                    {cat.description && <p className="text-[10px] text-purple-300/80">{cat.description}</p>}
+                    {cat.description && <p className="text-[10px] text-[#B0ACB0]/80">{cat.description}</p>}
                   </div>
 
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => handleStartEditCategory(cat)}
-                      className="p-1.5 rounded-lg bg-purple-900/60 hover:bg-purple-800 text-purple-200"
+                      className="p-1.5 rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white transition"
                       title="Edit Category"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
@@ -2756,7 +2908,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     {onDeleteCategory && (
                       <button
                         onClick={() => onDeleteCategory(cat.id)}
-                        className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-400"
+                        className="p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition"
                         title="Delete Category"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -2773,20 +2925,20 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       {/* Registered Player Details Modal */}
       {detailsModalTournament && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-[#0D0B22] border border-purple-900/40 rounded-2xl shadow-2xl p-4 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200 my-8">
-            <div className="flex items-center justify-between border-b border-purple-900/30 pb-3">
+          <div className="relative w-full max-w-4xl bg-[#0D0B0D] border border-[#29252A] rounded-2xl shadow-2xl p-4 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200 my-8">
+            <div className="flex items-center justify-between border-b border-[#29252A]/30 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-amber-400/10 border border-amber-400/30 text-amber-400">
+                <div className="p-2 rounded-xl bg-amber-400/10 border border-amber-400/30 text-[#C9A34E]">
                   <Users className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm sm:text-base font-black text-white">Registered Participants</h3>
-                    <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-purple-900/60 text-purple-200 border border-purple-700/40">
+                    <span className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded-md bg-[#1B181C] text-[#B0ACB0] border border-[#29252A]/40">
                       {detailsModalTournament.game || 'Match'}
                     </span>
                   </div>
-                  <p className="text-[10px] sm:text-xs text-purple-300/80 truncate max-w-md sm:max-w-xl">{detailsModalTournament.title}</p>
+                  <p className="text-[10px] sm:text-xs text-[#B0ACB0]/80 truncate max-w-md sm:max-w-xl">{detailsModalTournament.title}</p>
                 </div>
               </div>
 
@@ -2795,10 +2947,10 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   type="button"
                   onClick={() => handleRefreshModalParticipants(detailsModalTournament.id)}
                   disabled={isRefreshingParticipants}
-                  className="px-2.5 py-1.5 rounded-xl bg-[#17123A] hover:bg-purple-900/40 border border-purple-800/40 text-purple-200 hover:text-white text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
+                  className="px-2.5 py-1.5 rounded-xl bg-[#171418] hover:bg-[#1B181C] border border-[#29252A] text-[#B0ACB0] hover:text-white text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
                   title="Refresh participants live from Supabase"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingParticipants ? 'animate-spin text-amber-400' : 'text-purple-300'}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingParticipants ? 'animate-spin text-[#C9A34E]' : 'text-[#B0ACB0]'}`} />
                   <span className="hidden sm:inline">{isRefreshingParticipants ? 'Syncing...' : 'Sync Live'}</span>
                 </button>
                 <button
@@ -2807,7 +2959,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     setDetailsModalTournament(null);
                     setPlayerSearchQuery('');
                   }}
-                  className="p-1.5 text-purple-400 hover:text-white hover:bg-purple-900/20 rounded-lg transition"
+                  className="p-1.5 text-[#777278] hover:text-white hover:bg-[#141215]/20 rounded-lg transition"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -2816,26 +2968,26 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
             {/* Quick Match Metrics Banner */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <div className="p-2.5 rounded-xl bg-[#130F2D] border border-purple-900/30">
-                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">Participants</span>
-                <span className="text-sm sm:text-base font-black text-amber-400 font-mono">
+              <div className="p-2.5 rounded-xl bg-[#171418] border border-[#29252A]/30">
+                <span className="text-[10px] font-bold text-[#777278] uppercase tracking-wider block">Participants</span>
+                <span className="text-sm sm:text-base font-black text-[#C9A34E] font-mono">
                   {(detailsModalTournament.participants || []).length} / {detailsModalTournament.maxSlots || 48}
                 </span>
               </div>
-              <div className="p-2.5 rounded-xl bg-[#130F2D] border border-purple-900/30">
-                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">Slots Left</span>
-                <span className="text-sm sm:text-base font-black text-emerald-400 font-mono">
+              <div className="p-2.5 rounded-xl bg-[#171418] border border-[#29252A]/30">
+                <span className="text-[10px] font-bold text-[#777278] uppercase tracking-wider block">Slots Left</span>
+                <span className="text-sm sm:text-base font-black text-[#C9A34E] font-mono">
                   {Math.max(0, (detailsModalTournament.maxSlots || 48) - (detailsModalTournament.participants || []).length)} Available
                 </span>
               </div>
-              <div className="p-2.5 rounded-xl bg-[#130F2D] border border-purple-900/30">
-                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">Prize Pool</span>
+              <div className="p-2.5 rounded-xl bg-[#171418] border border-[#29252A]/30">
+                <span className="text-[10px] font-bold text-[#777278] uppercase tracking-wider block">Prize Pool</span>
                 <span className="text-sm sm:text-base font-black text-[#FF3E6C] font-mono">
                   ₹{detailsModalTournament.prizePool}
                 </span>
               </div>
-              <div className="p-2.5 rounded-xl bg-[#130F2D] border border-purple-900/30">
-                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider block">Per Kill Reward</span>
+              <div className="p-2.5 rounded-xl bg-[#171418] border border-[#29252A]/30">
+                <span className="text-[10px] font-bold text-[#777278] uppercase tracking-wider block">Per Kill Reward</span>
                 <span className="text-sm sm:text-base font-black text-[#00FFB2] font-mono">
                   ₹{detailsModalTournament.perKillReward || detailsModalTournament.perKillPrize || 0}
                 </span>
@@ -2850,9 +3002,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               (detailsModalTournament as any).require_access_code ||
               ((detailsModalTournament.accessCode || (detailsModalTournament as any).access_code) && String(detailsModalTournament.accessCode || (detailsModalTournament as any).access_code).trim().length > 0)
             ) && (
-              <div className="bg-amber-950/30 border border-amber-900/40 p-2.5 rounded-xl flex items-center justify-between text-xs text-amber-300 font-bold px-3">
+              <div className="bg-amber-950/30 border border-amber-900/40 p-2.5 rounded-xl flex items-center justify-between text-xs text-[#C9A34E] font-bold px-3">
                 <span className="flex items-center gap-1.5">
-                  <Key className="w-4 h-4 text-amber-400" />
+                  <Key className="w-4 h-4 text-[#C9A34E]" />
                   <span className="uppercase text-[11px] tracking-wider">Required Match Access Code:</span>
                 </span>
                 <span className="font-mono text-xs text-amber-200 font-black tracking-widest bg-amber-900/50 px-2.5 py-1 rounded-lg border border-amber-700/60">
@@ -2863,21 +3015,21 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
             {/* Search Input */}
             <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-purple-400" />
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#777278]" />
               <input
                 type="text"
                 placeholder="Search by Username, User ID, In-Game Name (IGN), Game UID, or Email..."
                 value={playerSearchQuery}
                 onChange={(e) => setPlayerSearchQuery(e.target.value)}
-                className="w-full bg-[#131032] text-white text-xs pl-9 pr-4 py-2.5 rounded-xl border border-purple-800/40 placeholder-purple-400/50 focus:outline-none focus:border-purple-600/60"
+                className="w-full bg-[#171418] text-white text-xs pl-9 pr-4 py-2.5 rounded-xl border border-[#29252A] placeholder-[#777278] focus:outline-none focus:border-[#29252A]/60"
               />
             </div>
 
             {/* Details Table */}
-            <div className="overflow-x-auto border border-purple-900/30 rounded-xl bg-[#080517]">
+            <div className="overflow-x-auto border border-[#29252A]/30 rounded-xl bg-[#0D0B0D]">
               <table className="w-full text-left text-xs border-collapse min-w-[700px]">
                 <thead>
-                  <tr className="bg-[#131032]/70 border-b border-purple-900/35 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider">
+                  <tr className="bg-[#171418]/70 border-b border-[#29252A]/35 text-[#B0ACB0] font-extrabold text-[10px] uppercase tracking-wider">
                     <th className="py-2.5 px-3 w-14">Slot</th>
                     <th className="py-2.5 px-3">Player / App Username</th>
                     <th className="py-2.5 px-3">User ID</th>
@@ -2894,20 +3046,20 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       <td colSpan={8} className="py-10 text-center text-red-400 text-xs px-4">
                         <XCircle className="w-8 h-8 mx-auto mb-2 text-rose-500/70" />
                         <span className="font-bold">Database Query Failure:</span> {participantError}
-                        <p className="text-[10px] text-purple-400 mt-1">Please verify Supabase connection, schema definitions, or Row-Level Security (RLS) policies.</p>
+                        <p className="text-[10px] text-[#777278] mt-1">Please verify Supabase connection, schema definitions, or Row-Level Security (RLS) policies.</p>
                       </td>
                     </tr>
                   ) : isRefreshingParticipants && (!detailsModalTournament.participants || detailsModalTournament.participants.length === 0) ? (
                     <tr>
-                      <td colSpan={8} className="py-10 text-center text-amber-300 text-xs">
-                        <Clock className="w-8 h-8 mx-auto mb-2 animate-spin text-amber-500" />
+                      <td colSpan={8} className="py-10 text-center text-[#C9A34E] text-xs">
+                        <Clock className="w-8 h-8 mx-auto mb-2 animate-spin text-[#C9A34E]" />
                         Fetching authoritative registrations...
                       </td>
                     </tr>
                   ) : (!detailsModalTournament.participants || detailsModalTournament.participants.length === 0) ? (
                     <tr>
-                      <td colSpan={8} className="py-10 text-center text-purple-400 text-xs">
-                        <Users className="w-8 h-8 mx-auto mb-2 text-purple-500/40" />
+                      <td colSpan={8} className="py-10 text-center text-[#777278] text-xs">
+                        <Users className="w-8 h-8 mx-auto mb-2 text-[#E21B36]/40" />
                         No registered participants found for this match yet.
                       </td>
                     </tr>
@@ -2931,7 +3083,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     if (filtered.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={8} className="py-8 text-center text-purple-400 text-xs">
+                          <td colSpan={8} className="py-8 text-center text-[#777278] text-xs">
                             No players match your search query "{playerSearchQuery}".
                           </td>
                         </tr>
@@ -2956,11 +3108,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       }) : 'N/A';
 
                       return (
-                        <tr key={rawUserId || idx} className="hover:bg-[#131032]/30 transition text-purple-100">
-                          <td className="py-3 px-3 font-mono font-black text-amber-400 text-xs">#{slotNo}</td>
+                        <tr key={rawUserId || idx} className="hover:bg-[#171418]/30 transition text-[#F5F5F5]">
+                          <td className="py-3 px-3 font-mono font-black text-[#C9A34E] text-xs">#{slotNo}</td>
                           <td className="py-3 px-3 font-semibold">
                             <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-purple-700 to-indigo-600 flex items-center justify-center font-black text-[11px] text-white shrink-0 border border-purple-500/30">
+                              <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#4A0D16] to-[#350A12] flex items-center justify-center font-black text-[11px] text-white shrink-0 border border-[#29252A]">
                                 {username.slice(0, 1).toUpperCase()}
                               </div>
                               <span className="truncate max-w-[130px]">{username}</span>
@@ -2968,17 +3120,17 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           </td>
                           <td className="py-3 px-3">
                             <div className="flex items-center gap-1.5 max-w-[130px]">
-                              <span className="font-mono text-purple-300 text-[11px] truncate" title={rawUserId}>
+                              <span className="font-mono text-[#B0ACB0] text-[11px] truncate" title={rawUserId}>
                                 {rawUserId !== 'N/A' && rawUserId.length > 12 ? `${rawUserId.slice(0, 8)}...` : rawUserId}
                               </span>
                               {rawUserId !== 'N/A' && (
                                 <button
                                   type="button"
                                   onClick={() => handleCopyValue(rawUserId)}
-                                  className="p-1 rounded bg-[#131032] hover:bg-purple-900/40 text-purple-300 hover:text-white transition active:scale-90"
+                                  className="p-1 rounded bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white transition active:scale-90"
                                   title="Copy User ID"
                                 >
-                                  {isUserIdCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  {isUserIdCopied ? <Check className="w-3 h-3 text-[#C9A34E]" /> : <Copy className="w-3 h-3" />}
                                 </button>
                               )}
                             </div>
@@ -2992,53 +3144,53 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleCopyValue(gameIgn)}
-                                  className="p-1 rounded bg-[#131032] hover:bg-purple-900/40 text-purple-300 hover:text-white transition active:scale-90"
+                                  className="p-1 rounded bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white transition active:scale-90"
                                   title="Copy IGN"
                                 >
-                                  {isIgnCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  {isIgnCopied ? <Check className="w-3 h-3 text-[#C9A34E]" /> : <Copy className="w-3 h-3" />}
                                 </button>
                               )}
                             </div>
                           </td>
                           <td className="py-3 px-3">
                             <div className="flex items-center gap-1.5 max-w-[135px]">
-                              <span className="font-mono font-extrabold text-amber-300 truncate" title={gameUid}>
+                              <span className="font-mono font-extrabold text-[#C9A34E] truncate" title={gameUid}>
                                 {gameUid}
                               </span>
                               {gameUid !== 'N/A' && (
                                 <button
                                   type="button"
                                   onClick={() => handleCopyValue(gameUid)}
-                                  className="p-1 rounded bg-[#131032] hover:bg-purple-900/40 text-purple-300 hover:text-white transition active:scale-90"
+                                  className="p-1 rounded bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white transition active:scale-90"
                                   title="Copy UID"
                                 >
-                                  {isUidCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  {isUidCopied ? <Check className="w-3 h-3 text-[#C9A34E]" /> : <Copy className="w-3 h-3" />}
                                 </button>
                               )}
                             </div>
                           </td>
                           <td className="py-3 px-3">
                             <div className="flex items-center gap-1.5 max-w-[135px]">
-                              <span className="text-purple-200 font-mono text-[11px] truncate" title={userEmail}>
+                              <span className="text-[#B0ACB0] font-mono text-[11px] truncate" title={userEmail}>
                                 {userEmail}
                               </span>
                               {userEmail !== 'N/A' && (
                                 <button
                                   type="button"
                                   onClick={() => handleCopyValue(userEmail)}
-                                  className="p-1 rounded bg-[#131032] hover:bg-purple-900/40 text-purple-300 hover:text-white transition active:scale-90"
+                                  className="p-1 rounded bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white transition active:scale-90"
                                   title="Copy Email"
                                 >
-                                  {isEmailCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  {isEmailCopied ? <Check className="w-3 h-3 text-[#C9A34E]" /> : <Copy className="w-3 h-3" />}
                                 </button>
                               )}
                             </div>
                           </td>
-                          <td className="py-3 px-3 text-purple-300 font-mono text-[10px] whitespace-nowrap">
+                          <td className="py-3 px-3 text-[#B0ACB0] font-mono text-[10px] whitespace-nowrap">
                             {formattedRegTime}
                           </td>
                           <td className="py-3 px-3 text-right">
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-[#350A12] text-[#C9A34E] border border-[#29252A]">
                               {(p.status || 'Registered')}
                             </span>
                           </td>
@@ -3050,9 +3202,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               </table>
             </div>
 
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-2 border-t border-purple-900/20 text-xs text-purple-400">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-2 border-t border-[#29252A]/20 text-xs text-[#777278]">
               <span className="font-semibold">
-                Total Participants: <strong className="text-amber-400">{(detailsModalTournament.participants || []).length}</strong> / {detailsModalTournament.maxSlots || 48} ({Math.max(0, (detailsModalTournament.maxSlots || 48) - (detailsModalTournament.participants || []).length)} slots left)
+                Total Participants: <strong className="text-[#C9A34E]">{(detailsModalTournament.participants || []).length}</strong> / {detailsModalTournament.maxSlots || 48} ({Math.max(0, (detailsModalTournament.maxSlots || 48) - (detailsModalTournament.participants || []).length)} slots left)
               </span>
               <button
                 type="button"
@@ -3060,7 +3212,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   setDetailsModalTournament(null);
                   setPlayerSearchQuery('');
                 }}
-                className="px-5 py-2 bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-800 hover:to-indigo-800 text-white font-extrabold uppercase text-xs rounded-xl border border-purple-700/40 transition active:scale-95 shadow-lg"
+                className="px-5 py-2 bg-gradient-to-r from-purple-900 to-indigo-900 hover:from-purple-800 hover:to-indigo-800 text-white font-extrabold uppercase text-xs rounded-xl border border-[#29252A]/40 transition active:scale-95 shadow-lg"
               >
                 Close Details
               </button>
@@ -3072,20 +3224,20 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       {/* Results Out List Modal */}
       {resultsListModalTournament && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-[#08061B] border border-emerald-900/40 rounded-2xl shadow-2xl p-4 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200 my-8">
+          <div className="relative w-full max-w-4xl bg-[#0D0B0D] border border-emerald-900/40 rounded-2xl shadow-2xl p-4 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200 my-8">
             <div className="flex items-center justify-between border-b border-emerald-950 pb-3">
               <div className="flex items-center gap-2">
-                <Trophy className="w-5.5 h-5.5 text-amber-400" />
+                <Trophy className="w-5.5 h-5.5 text-[#C9A34E]" />
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-black text-emerald-400 flex items-center gap-1.5 uppercase tracking-wide">
+                    <h3 className="text-sm font-black text-[#C9A34E] flex items-center gap-1.5 uppercase tracking-wide">
                       🏆 Match Results Out List
                     </h3>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-950 text-emerald-300 border border-emerald-500/40 uppercase">
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-[#350A12] text-[#C9A34E] border border-emerald-500/40 uppercase">
                       COMPLETED
                     </span>
                   </div>
-                  <p className="text-[10px] sm:text-xs text-purple-300/80 truncate max-w-md sm:max-w-xl">{resultsListModalTournament.title}</p>
+                  <p className="text-[10px] sm:text-xs text-[#B0ACB0]/80 truncate max-w-md sm:max-w-xl">{resultsListModalTournament.title}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -3093,16 +3245,16 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   type="button"
                   onClick={() => handleRefreshResultsList(resultsListModalTournament.id)}
                   disabled={isRefreshingResults}
-                  className="p-1.5 text-emerald-400 hover:text-white bg-emerald-950/60 hover:bg-emerald-900/40 border border-emerald-800/40 rounded-lg transition text-xs flex items-center gap-1 font-bold"
+                  className="p-1.5 text-[#C9A34E] hover:text-white bg-[#350A12] hover:bg-emerald-900/40 border border-[#29252A] rounded-lg transition text-xs flex items-center gap-1 font-bold"
                   title="Refresh Results"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingResults ? 'animate-spin text-amber-400' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingResults ? 'animate-spin text-[#C9A34E]' : ''}`} />
                   <span className="hidden sm:inline">{isRefreshingResults ? 'Refreshing...' : 'Refresh'}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setResultsListModalTournament(null)}
-                  className="p-1.5 text-purple-400 hover:text-white hover:bg-purple-900/20 rounded-lg transition"
+                  className="p-1.5 text-[#777278] hover:text-white hover:bg-[#141215]/20 rounded-lg transition"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -3111,22 +3263,22 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
             {/* Info Cards Row */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="p-3 rounded-xl bg-[#112423]/40 border border-emerald-900/30">
-                <span className="block text-[8px] sm:text-[10px] uppercase font-black tracking-wider text-emerald-400">Total Prize Distributed</span>
+              <div className="p-3 rounded-xl bg-[#171418]/40 border border-emerald-900/30">
+                <span className="block text-[8px] sm:text-[10px] uppercase font-black tracking-wider text-[#C9A34E]">Total Prize Distributed</span>
                 <span className="text-base sm:text-xl font-extrabold text-white mt-1 block">
                   ₹{(resultsListModalTournament.participants || []).reduce((acc, p) => acc + Number(p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount ?? 0), 0)}
                 </span>
               </div>
-              <div className="p-3 rounded-xl bg-[#19143D]/40 border border-purple-900/30">
-                <span className="block text-[8px] sm:text-[10px] uppercase font-black tracking-wider text-purple-400">Total Registered</span>
+              <div className="p-3 rounded-xl bg-[#171418]/40 border border-[#29252A]/30">
+                <span className="block text-[8px] sm:text-[10px] uppercase font-black tracking-wider text-[#777278]">Total Registered</span>
                 <span className="text-base sm:text-xl font-extrabold text-white mt-1 block">
                   {(resultsListModalTournament.participants || []).length} Players
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-amber-950/20 border border-amber-900/20 col-span-2 sm:col-span-1">
-                <span className="block text-[8px] sm:text-[10px] uppercase font-black tracking-wider text-amber-400">Winnings Status</span>
+                <span className="block text-[8px] sm:text-[10px] uppercase font-black tracking-wider text-[#C9A34E]">Winnings Status</span>
                 <span className="text-xs font-bold text-amber-200 mt-1 block flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5 text-amber-400 inline" /> Disbursed to Wallets
+                  <Check className="w-3.5 h-3.5 text-[#C9A34E] inline" /> Disbursed to Wallets
                 </span>
               </div>
             </div>
@@ -3163,9 +3315,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     const prize = Number(winner.prizeWon ?? (winner as any).prize_won ?? (winner as any).prize ?? (winner as any).winnings ?? 0);
 
                     const rankColors = [
-                      'from-amber-500/20 to-amber-950/40 border-amber-500/40 text-amber-300',
-                      'from-slate-400/20 to-slate-900/40 border-slate-400/40 text-slate-200',
-                      'from-amber-800/20 to-amber-950/40 border-amber-700/40 text-amber-400'
+                      'from-amber-500/20 to-amber-950/40 border-[#C9A34E]/30 text-[#C9A34E]',
+                      'from-[#141215]/20 to-[#0D0B0D]/40 border-[#29252A]/40 text-[#B0ACB0]',
+                      'from-amber-800/20 to-amber-950/40 border-amber-700/40 text-[#C9A34E]'
                     ];
 
                     const medalBadges = ['🥇 1st Place', '🥈 2nd Place', '🥉 3rd Place'];
@@ -3179,15 +3331,15 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           <span className="text-[10px] font-black uppercase tracking-wider">
                             {medalBadges[idx] || `#${rank} Place`}
                           </span>
-                          <span className="font-mono text-xs font-black text-emerald-400">
+                          <span className="font-mono text-xs font-black text-[#C9A34E]">
                             +₹{prize}
                           </span>
                         </div>
                         <div>
                           <p className="font-black text-white text-xs truncate">{details.gameIgn || details.username}</p>
-                          <p className="text-[10px] text-purple-300 font-mono truncate">UID: {details.gameUid}</p>
+                          <p className="text-[10px] text-[#B0ACB0] font-mono truncate">UID: {details.gameUid}</p>
                         </div>
-                        <div className="flex items-center justify-between text-[10px] border-t border-white/10 pt-1.5 text-purple-200 font-mono">
+                        <div className="flex items-center justify-between text-[10px] border-t border-white/10 pt-1.5 text-[#B0ACB0] font-mono">
                           <span>{kills} Kills</span>
                           <span className="text-white font-bold">{details.username}</span>
                         </div>
@@ -3201,13 +3353,13 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             {/* Filter & Action Toolbar */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-1">
               <div className="relative w-full sm:w-72">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" />
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#777278]" />
                 <input
                   type="text"
                   placeholder="Search player, IGN, UID, email..."
                   value={resultsSearchQuery}
                   onChange={(e) => setResultsSearchQuery(e.target.value)}
-                  className="w-full bg-[#100D28] border border-purple-900/40 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-purple-400/60 focus:outline-none focus:border-emerald-500/50"
+                  className="w-full bg-[#171418] border border-[#29252A] rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-purple-400/60 focus:outline-none focus:border-emerald-500/50"
                 />
               </div>
 
@@ -3245,18 +3397,18 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   summary += `\n✅ Winnings have been credited to WINX7 in-app wallets!`;
                   handleCopyValue(summary);
                 }}
-                className="w-full sm:w-auto px-3 py-1.5 rounded-xl text-xs font-bold bg-[#141030] hover:bg-[#1f1947] text-purple-200 border border-purple-800/40 flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm"
+                className="w-full sm:w-auto px-3 py-1.5 rounded-xl text-xs font-bold bg-[#1B181C] hover:bg-[#1B181C] text-[#B0ACB0] border border-[#29252A] flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm"
               >
-                <Copy className="w-3.5 h-3.5 text-amber-400" />
+                <Copy className="w-3.5 h-3.5 text-[#C9A34E]" />
                 <span>{copiedText ? 'Copied Summary!' : 'Copy Results Summary'}</span>
               </button>
             </div>
 
             {/* Results Table */}
-            <div className="overflow-x-auto border border-purple-900/20 rounded-xl bg-[#050410]">
+            <div className="overflow-x-auto border border-[#29252A]/20 rounded-xl bg-[#0D0B0D]">
               <table className="w-full text-left text-xs border-collapse min-w-[700px]">
                 <thead>
-                  <tr className="bg-[#112423]/25 border-b border-emerald-950 text-emerald-400 font-extrabold text-[10px] uppercase tracking-wider">
+                  <tr className="bg-[#171418]/25 border-b border-emerald-950 text-[#C9A34E] font-extrabold text-[10px] uppercase tracking-wider">
                     <th className="py-2.5 px-3">Rank</th>
                     <th className="py-2.5 px-3">Player / App Username</th>
                     <th className="py-2.5 px-3">Email</th>
@@ -3269,7 +3421,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                 <tbody className="divide-y divide-purple-900/10">
                   {(!resultsListModalTournament.participants || resultsListModalTournament.participants.length === 0) ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-purple-400">
+                      <td colSpan={7} className="py-8 text-center text-[#777278]">
                         No participant results found.
                       </td>
                     </tr>
@@ -3316,7 +3468,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     if (filtered.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={7} className="py-6 text-center text-purple-400/80">
+                          <td colSpan={7} className="py-6 text-center text-[#777278]/80">
                             No players matched your search query "{resultsSearchQuery}".
                           </td>
                         </tr>
@@ -3338,16 +3490,16 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       else rankBadge = `${pRank}th`;
 
                       return (
-                        <tr key={p.userId || idx} className="hover:bg-purple-900/10 transition text-purple-100">
-                          <td className="py-3 px-3 font-extrabold text-amber-300 font-mono">{rankBadge}</td>
+                        <tr key={p.userId || idx} className="hover:bg-[#141215]/10 transition text-[#F5F5F5]">
+                          <td className="py-3 px-3 font-extrabold text-[#C9A34E] font-mono">{rankBadge}</td>
                           <td className="py-3 px-3 font-semibold text-white">{username}</td>
-                          <td className="py-3 px-3 text-[11px] font-mono text-purple-300 truncate max-w-[140px]" title={userEmail}>
+                          <td className="py-3 px-3 text-[11px] font-mono text-[#B0ACB0] truncate max-w-[140px]" title={userEmail}>
                             {userEmail}
                           </td>
-                          <td className="py-3 px-3 font-mono font-bold text-purple-200">{gameUid}</td>
+                          <td className="py-3 px-3 font-mono font-bold text-[#B0ACB0]">{gameUid}</td>
                           <td className="py-3 px-3 font-bold text-white">{gameIgn}</td>
-                          <td className="py-3 px-3 text-center font-mono font-bold text-purple-100">{pKills}</td>
-                          <td className="py-3 px-3 text-right font-mono font-black text-emerald-400 text-sm">
+                          <td className="py-3 px-3 text-center font-mono font-bold text-[#F5F5F5]">{pKills}</td>
+                          <td className="py-3 px-3 text-right font-mono font-black text-[#C9A34E] text-sm">
                             ₹{pPrize}
                           </td>
                         </tr>
@@ -3362,7 +3514,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               <button
                 type="button"
                 onClick={() => setResultsListModalTournament(null)}
-                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold uppercase rounded-lg transition"
+                className="px-5 py-2 bg-[#C9A34E] hover:bg-emerald-400 text-black font-extrabold uppercase rounded-lg transition"
               >
                 Close Results
               </button>
@@ -3374,18 +3526,18 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       {/* SAVED IMAGE PICKER MODAL */}
       {showImagePickerModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-xl bg-[#130F29] border border-purple-800 rounded-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95">
+          <div className="w-full max-w-xl bg-[#0D0B0D] border border-[#29252A] rounded-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95">
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-purple-800/50 flex items-center justify-between shrink-0">
+            <div className="p-4 sm:p-5 border-b border-[#29252A] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-xl bg-[#C9A34E]/20 border border-[#C9A34E]/30 text-[#C9A34E] flex items-center justify-center">
                   <ImageIcon className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-white uppercase tracking-wider">
                     Select Saved Image
                   </h3>
-                  <p className="text-[10px] text-purple-300/70">
+                  <p className="text-[10px] text-[#B0ACB0]/70">
                     Tap any saved image from your library to attach to this match
                   </p>
                 </div>
@@ -3394,22 +3546,22 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               <button
                 type="button"
                 onClick={() => setShowImagePickerModal(false)}
-                className="p-1.5 rounded-xl bg-purple-900/40 text-purple-300 hover:text-white transition"
+                className="p-1.5 rounded-xl bg-[#1B181C] text-[#B0ACB0] hover:text-white transition"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Search filter */}
-            <div className="p-3 sm:px-5 bg-[#0F0D24] border-b border-purple-900/40 shrink-0">
+            <div className="p-3 sm:px-5 bg-[#141215] border-b border-[#29252A] shrink-0">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-purple-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-[#777278] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Search saved images..."
                   value={imagePickerSearch}
                   onChange={(e) => setImagePickerSearch(e.target.value)}
-                  className="w-full bg-[#1A1538] border border-purple-800/60 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-purple-400/50 focus:outline-none focus:border-amber-400"
+                  className="w-full bg-[#141215] border border-[#29252A] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-[#777278] focus:outline-none focus:border-[#C9A34E]"
                 />
               </div>
             </div>
@@ -3418,11 +3570,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1">
               {savedImages.length === 0 ? (
                 <div className="text-center py-10 px-4">
-                  <div className="w-12 h-12 rounded-2xl bg-purple-900/30 border border-purple-800/40 text-purple-300 flex items-center justify-center mx-auto mb-3">
+                  <div className="w-12 h-12 rounded-2xl bg-[#141215]/30 border border-[#29252A] text-[#B0ACB0] flex items-center justify-center mx-auto mb-3">
                     <ImageIcon className="w-6 h-6" />
                   </div>
                   <h4 className="text-sm font-extrabold text-white uppercase">No Saved Images in Library</h4>
-                  <p className="text-xs text-purple-300/70 max-w-sm mx-auto mt-1 mb-4">
+                  <p className="text-xs text-[#B0ACB0]/70 max-w-sm mx-auto mt-1 mb-4">
                     Upload reusable match-card images in the Saved Images section first.
                   </p>
                   {onNavigateToSavedImages && (
@@ -3433,7 +3585,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                         setShowCreateModal(false);
                         onNavigateToSavedImages();
                       }}
-                      className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs uppercase tracking-wider transition shadow-lg"
+                      className="px-4 py-2 rounded-xl bg-[#C9A34E] hover:bg-amber-400 text-black font-extrabold text-xs uppercase tracking-wider transition shadow-lg"
                     >
                       Open Saved Images Section
                     </button>
@@ -3447,7 +3599,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
                   if (filtered.length === 0) {
                     return (
-                      <div className="text-center py-8 text-xs text-purple-300/70">
+                      <div className="text-center py-8 text-xs text-[#B0ACB0]/70">
                         No saved images match "{imagePickerSearch}".
                       </div>
                     );
@@ -3466,10 +3618,10 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                               setFormBannerUrl(img.url);
                               setShowImagePickerModal(false);
                             }}
-                            className={`group relative rounded-2xl overflow-hidden border-2 cursor-pointer transition-all flex flex-col bg-[#161233] ${
+                            className={`group relative rounded-2xl overflow-hidden border-2 cursor-pointer transition-all flex flex-col bg-[#171418] ${
                               isSelected
                                 ? 'border-amber-400 ring-2 ring-amber-400/40 shadow-lg shadow-amber-500/20'
-                                : 'border-purple-900/50 hover:border-purple-600 hover:shadow-md'
+                                : 'border-[#29252A]/50 hover:border-[#29252A] hover:shadow-md'
                             }`}
                           >
                             <div className="relative w-full h-28 bg-black/60 overflow-hidden">
@@ -3486,7 +3638,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                                 </div>
                               )}
                             </div>
-                            <div className="p-2.5 bg-[#161233]">
+                            <div className="p-2.5 bg-[#171418]">
                               <p className="text-xs font-black text-white uppercase truncate text-center">
                                 {img.name}
                               </p>
@@ -3501,14 +3653,14 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-3 sm:px-5 border-t border-purple-800/40 bg-[#0F0D24] flex items-center justify-between shrink-0">
-              <span className="text-[10px] text-purple-300/60 font-bold">
+            <div className="p-3 sm:px-5 border-t border-[#29252A] bg-[#141215] flex items-center justify-between shrink-0">
+              <span className="text-[10px] text-[#B0ACB0]/60 font-bold">
                 {savedImages.length} images available
               </span>
               <button
                 type="button"
                 onClick={() => setShowImagePickerModal(false)}
-                className="px-4 py-1.5 rounded-xl bg-purple-900/60 hover:bg-purple-800 text-white text-xs font-bold"
+                className="px-4 py-1.5 rounded-xl bg-[#1B181C] hover:bg-[#FF3048] text-white text-xs font-bold"
               >
                 Close
               </button>
@@ -3520,18 +3672,18 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       {/* CREATE DUPLICATE MATCH MODAL */}
       {duplicatingTournament && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-lg bg-[#140F2E] border border-cyan-800/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+          <div className="w-full max-w-lg bg-[#141215] border border-[#C9A34E]/40 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
             {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-purple-800/50 bg-[#1A143D] flex items-center justify-between">
+            <div className="p-4 sm:p-5 border-b border-[#29252A] bg-[#1B181C] flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shadow-inner">
+                <div className="w-10 h-10 rounded-2xl bg-[#1B181C] border border-[#C9A34E]/30 text-[#C9A34E] flex items-center justify-center shadow-inner">
                   <Copy className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white uppercase tracking-wider">
                     Create Duplicate Match
                   </h3>
-                  <p className="text-[11px] text-purple-300/70">
+                  <p className="text-[11px] text-[#B0ACB0]/70">
                     Clones all settings, rules, banner, and fees into a fresh new match
                   </p>
                 </div>
@@ -3539,7 +3691,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               <button
                 type="button"
                 onClick={() => setDuplicatingTournament(null)}
-                className="p-1.5 text-purple-400 hover:text-white rounded-xl bg-purple-900/40 transition cursor-pointer"
+                className="p-1.5 text-[#777278] hover:text-white rounded-xl bg-[#1B181C] transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -3548,26 +3700,26 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             {/* Body */}
             <div className="p-4 sm:p-6 space-y-4 overflow-y-auto max-h-[70vh] custom-scrollbar">
               {/* Target Match Info */}
-              <div className="p-3.5 rounded-2xl bg-[#0E0A22] border border-purple-900/50 space-y-2">
+              <div className="p-3.5 rounded-2xl bg-[#171418] border border-[#29252A]/50 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] uppercase font-black text-cyan-400 tracking-wider">Original Match Source</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-900/60 text-purple-200 font-bold">
+                  <span className="text-[10px] uppercase font-black text-[#C9A34E] tracking-wider">Original Match Source</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#1B181C] text-[#B0ACB0] font-bold">
                     {duplicatingTournament.game || duplicatingTournament.category}
                   </span>
                 </div>
                 <h4 className="text-sm font-black text-white">{duplicatingTournament.title}</h4>
                 <div className="grid grid-cols-3 gap-2 pt-1 text-[11px]">
-                  <div className="p-2 rounded-xl bg-[#171138] border border-purple-900/40">
-                    <span className="text-[10px] text-purple-400 block">Entry Fee</span>
-                    <span className="font-extrabold text-amber-400">₹{duplicatingTournament.entryFee}</span>
+                  <div className="p-2 rounded-xl bg-[#171418] border border-[#29252A]">
+                    <span className="text-[10px] text-[#777278] block">Entry Fee</span>
+                    <span className="font-extrabold text-[#C9A34E]">₹{duplicatingTournament.entryFee}</span>
                   </div>
-                  <div className="p-2 rounded-xl bg-[#171138] border border-purple-900/40">
-                    <span className="text-[10px] text-purple-400 block">Prize Pool</span>
-                    <span className="font-extrabold text-emerald-400">₹{duplicatingTournament.prizePool}</span>
+                  <div className="p-2 rounded-xl bg-[#171418] border border-[#29252A]">
+                    <span className="text-[10px] text-[#777278] block">Prize Pool</span>
+                    <span className="font-extrabold text-[#C9A34E]">₹{duplicatingTournament.prizePool}</span>
                   </div>
-                  <div className="p-2 rounded-xl bg-[#171138] border border-purple-900/40">
-                    <span className="text-[10px] text-purple-400 block">Max Slots</span>
-                    <span className="font-extrabold text-cyan-400">{duplicatingTournament.maxSlots || 48}</span>
+                  <div className="p-2 rounded-xl bg-[#171418] border border-[#29252A]">
+                    <span className="text-[10px] text-[#777278] block">Max Slots</span>
+                    <span className="font-extrabold text-[#C9A34E]">{duplicatingTournament.maxSlots || 48}</span>
                   </div>
                 </div>
               </div>
@@ -3575,7 +3727,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               {/* Date & Time Selection */}
               <div className="space-y-2">
                 <label className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4 text-cyan-400" />
+                  <Calendar className="w-4 h-4 text-[#C9A34E]" />
                   <span>Select New Match Schedule (Date & Time)</span>
                   <span className="text-rose-400">*</span>
                 </label>
@@ -3583,19 +3735,19 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   type="datetime-local"
                   value={duplicateStartTime}
                   onChange={(e) => setDuplicateStartTime(e.target.value)}
-                  className="w-full bg-[#18123C] border border-cyan-700/60 rounded-2xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 shadow-inner"
+                  className="w-full bg-[#171418] border border-[#29252A] rounded-2xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-[#C9A34E] focus:ring-2 focus:ring-[#C9A34E]/20 shadow-inner"
                 />
 
                 {/* Quick Shift buttons */}
                 <div className="flex items-center gap-2 pt-1 flex-wrap">
-                  <span className="text-[10px] uppercase font-bold text-purple-400">Quick set:</span>
+                  <span className="text-[10px] uppercase font-bold text-[#777278]">Quick set:</span>
                   <button
                     type="button"
                     onClick={() => {
                       const now = new Date(Date.now() + 60 * 60 * 1000);
                       setDuplicateStartTime(formatForDateTimeLocal(now.toISOString()));
                     }}
-                    className="px-2.5 py-1 rounded-xl bg-[#1E1748] hover:bg-cyan-900/40 text-cyan-300 text-[10px] font-bold border border-cyan-800/40 transition cursor-pointer"
+                    className="px-2.5 py-1 rounded-xl bg-[#1B181C] hover:bg-[#C9A34E] text-[#C9A34E] hover:text-black text-[10px] font-bold border border-[#C9A34E]/30 transition cursor-pointer"
                   >
                     +1 Hour
                   </button>
@@ -3605,7 +3757,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       const now = new Date(Date.now() + 2 * 60 * 60 * 1000);
                       setDuplicateStartTime(formatForDateTimeLocal(now.toISOString()));
                     }}
-                    className="px-2.5 py-1 rounded-xl bg-[#1E1748] hover:bg-cyan-900/40 text-cyan-300 text-[10px] font-bold border border-cyan-800/40 transition cursor-pointer"
+                    className="px-2.5 py-1 rounded-xl bg-[#1B181C] hover:bg-[#C9A34E] text-[#C9A34E] hover:text-black text-[10px] font-bold border border-[#C9A34E]/30 transition cursor-pointer"
                   >
                     +2 Hours
                   </button>
@@ -3615,7 +3767,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       const now = new Date(Date.now() + 24 * 60 * 60 * 1000);
                       setDuplicateStartTime(formatForDateTimeLocal(now.toISOString()));
                     }}
-                    className="px-2.5 py-1 rounded-xl bg-[#1E1748] hover:bg-cyan-900/40 text-cyan-300 text-[10px] font-bold border border-cyan-800/40 transition cursor-pointer"
+                    className="px-2.5 py-1 rounded-xl bg-[#1B181C] hover:bg-[#C9A34E] text-[#C9A34E] hover:text-black text-[10px] font-bold border border-[#C9A34E]/30 transition cursor-pointer"
                   >
                     Tomorrow Same Time
                   </button>
@@ -3623,11 +3775,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               </div>
 
               {/* Duplicate Safety Guarantees Notice */}
-              <div className="p-3.5 rounded-2xl bg-[#0F0B24] border border-cyan-900/40 space-y-1.5 text-xs text-purple-200">
-                <p className="font-bold text-cyan-300 flex items-center gap-1.5 text-[11px] uppercase">
-                  <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0" /> Clean Duplicate Guarantees:
+              <div className="p-3.5 rounded-2xl bg-[#171418] border border-[#29252A] space-y-1.5 text-xs text-[#B0ACB0]">
+                <p className="font-bold text-[#C9A34E] flex items-center gap-1.5 text-[11px] uppercase">
+                  <ShieldCheck className="w-4 h-4 text-[#C9A34E] shrink-0" /> Clean Duplicate Guarantees:
                 </p>
-                <ul className="list-disc list-inside space-y-1 text-[11px] text-purple-300/80">
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-[#B0ACB0]/80">
                   <li>Creates a brand new match ID in Supabase.</li>
                   <li>Participants, transactions, room IDs, and results are <strong>NOT</strong> copied.</li>
                   {Boolean(
@@ -3637,7 +3789,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                     (duplicatingTournament as any).require_access_code ||
                     ((duplicatingTournament.accessCode || (duplicatingTournament as any).access_code) && String(duplicatingTournament.accessCode || (duplicatingTournament as any).access_code).trim().length > 0)
                   ) ? (
-                    <li className="text-amber-300 font-bold">
+                    <li className="text-[#C9A34E] font-bold">
                       Access Code is ON: A <strong>BRAND NEW unique Access Code</strong> will be generated automatically. Original code is never reused.
                     </li>
                   ) : (
@@ -3648,11 +3800,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             </div>
 
             {/* Footer Buttons */}
-            <div className="p-4 sm:p-5 border-t border-purple-800/40 bg-[#120D2A] flex items-center justify-end gap-3">
+            <div className="p-4 sm:p-5 border-t border-[#29252A] bg-[#1B181C] flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setDuplicatingTournament(null)}
-                className="px-4 py-2.5 rounded-xl bg-purple-900/40 hover:bg-purple-900/70 text-purple-200 text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-[#1B181C] hover:bg-[#141215]/70 text-[#B0ACB0] text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -3672,18 +3824,18 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       {/* CANCEL MATCH CONFIRMATION MODAL */}
       {cancellingTournament && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-md bg-[#160E1E] border border-orange-700/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+          <div className="w-full max-w-md bg-[#141215] border border-[#E21B36]/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
             {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-orange-800/50 bg-[#20111A] flex items-center justify-between">
+            <div className="p-4 sm:p-5 border-b border-[#350A12] bg-[#1B181C] flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-orange-500/20 border border-orange-500/30 text-orange-400 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-2xl bg-[#350A12] border border-orange-500/30 text-[#FF3048] flex items-center justify-center">
                   <XCircle className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="text-base font-black text-white uppercase tracking-wider">
                     Cancel Match?
                   </h3>
-                  <p className="text-[11px] text-orange-300/80">
+                  <p className="text-[11px] text-[#FF3048]/80">
                     Entry fees will be refunded to all joined players
                   </p>
                 </div>
@@ -3691,7 +3843,7 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
               <button
                 type="button"
                 onClick={() => setCancellingTournament(null)}
-                className="p-1.5 text-orange-400 hover:text-white rounded-xl bg-orange-950/40 transition cursor-pointer"
+                className="p-1.5 text-[#FF3048] hover:text-white rounded-xl bg-orange-950/40 transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -3699,21 +3851,21 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
             {/* Body */}
             <div className="p-4 sm:p-6 space-y-4">
-              <div className="p-3.5 rounded-2xl bg-[#0F0712] border border-orange-900/40 space-y-1.5">
-                <span className="text-[10px] uppercase font-black text-orange-400 tracking-wider">Target Match</span>
+              <div className="p-3.5 rounded-2xl bg-[#171418] border border-[#350A12] space-y-1.5">
+                <span className="text-[10px] uppercase font-black text-[#FF3048] tracking-wider">Target Match</span>
                 <h4 className="text-sm font-black text-white">{cancellingTournament.title}</h4>
-                <p className="text-xs text-purple-300">
+                <p className="text-xs text-[#B0ACB0]">
                   {cancellingTournament.game} • {formatStartTime(cancellingTournament.startTime)}
                 </p>
-                <div className="flex items-center justify-between pt-2 border-t border-purple-950 text-xs">
-                  <span className="text-purple-300">Joined Players:</span>
-                  <span className="font-extrabold text-amber-400">{cancellingTournament.filledSlots || (cancellingTournament.participants || []).length}</span>
+                <div className="flex items-center justify-between pt-2 border-t border-[#29252A] text-xs">
+                  <span className="text-[#B0ACB0]">Joined Players:</span>
+                  <span className="font-extrabold text-[#C9A34E]">{cancellingTournament.filledSlots || (cancellingTournament.participants || []).length}</span>
                 </div>
               </div>
 
               <div className="p-3 rounded-2xl bg-orange-950/40 border border-orange-800/40 text-xs text-orange-200 space-y-1">
-                <p className="font-extrabold text-orange-300 flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" /> Warning
+                <p className="font-extrabold text-[#FF3048] flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-[#FF3048] shrink-0" /> Warning
                 </p>
                 <p className="text-[11px] text-orange-200/90 leading-relaxed">
                   Cancelling this match will update its status to CANCELLED and automatically refund the full entry fee (₹{cancellingTournament.entryFee}) back to each participant's wallet balance.
@@ -3722,11 +3874,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-4 sm:p-5 border-t border-orange-900/40 bg-[#120815] flex items-center justify-end gap-3">
+            <div className="p-4 sm:p-5 border-t border-[#350A12] bg-[#1B181C] flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setCancellingTournament(null)}
-                className="px-4 py-2.5 rounded-xl bg-purple-900/40 hover:bg-purple-900/70 text-purple-200 text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-[#1B181C] hover:bg-[#141215]/70 text-[#B0ACB0] text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
               >
                 Go Back
               </button>
@@ -3759,9 +3911,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       {/* DELETE MATCH CONFIRMATION MODAL */}
       {deletingTournament && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-md bg-[#180C14] border border-rose-700/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+          <div className="w-full max-w-md bg-[#141215] border border-[#E21B36]/60 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
             {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-rose-800/50 bg-[#240F1D] flex items-center justify-between">
+            <div className="p-4 sm:p-5 border-b border-[#350A12] bg-[#1B181C] flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/30 text-rose-400 flex items-center justify-center">
                   <Trash2 className="w-5 h-5" />
@@ -3786,15 +3938,15 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
 
             {/* Body */}
             <div className="p-4 sm:p-6 space-y-4">
-              <div className="p-3.5 rounded-2xl bg-[#0E050B] border border-rose-900/40 space-y-1.5">
+              <div className="p-3.5 rounded-2xl bg-[#171418] border border-[#350A12] space-y-1.5">
                 <span className="text-[10px] uppercase font-black text-rose-400 tracking-wider">Target Match</span>
                 <h4 className="text-sm font-black text-white">{deletingTournament.title}</h4>
-                <p className="text-xs text-purple-300">
+                <p className="text-xs text-[#B0ACB0]">
                   {deletingTournament.game} • {formatStartTime(deletingTournament.startTime)}
                 </p>
               </div>
 
-              <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-800/40 text-xs text-rose-200 space-y-1">
+              <div className="p-3 rounded-2xl bg-rose-950/40 border border-[#350A12] text-xs text-rose-200 space-y-1">
                 <p className="font-extrabold text-rose-300 flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" /> Permanent Deletion
                 </p>
@@ -3805,11 +3957,11 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-4 sm:p-5 border-t border-rose-900/40 bg-[#12050D] flex items-center justify-end gap-3">
+            <div className="p-4 sm:p-5 border-t border-[#350A12] bg-[#1B181C] flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setDeletingTournament(null)}
-                className="px-4 py-2.5 rounded-xl bg-purple-900/40 hover:bg-purple-900/70 text-purple-200 text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-[#1B181C] hover:bg-[#141215]/70 text-[#B0ACB0] text-xs font-extrabold uppercase tracking-wider transition cursor-pointer"
               >
                 Cancel
               </button>

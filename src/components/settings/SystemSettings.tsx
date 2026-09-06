@@ -10,8 +10,13 @@ import {
   Lock,
   Scale,
   IndianRupee,
-  Plus
+  Plus,
+  Bell,
+  Send,
+  Radio,
+  AlertCircle
 } from 'lucide-react';
+import { checkFcmBackendStatus } from '../../services/notificationSenderService';
 
 interface SystemSettingsProps {
   settings: SystemSettingsType;
@@ -101,6 +106,24 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [fcmStatus, setFcmStatus] = useState<{ configured: boolean; error: string | null } | null>(null);
+  const [checkingFcm, setCheckingFcm] = useState(false);
+
+  const loadFcmStatus = async () => {
+    setCheckingFcm(true);
+    try {
+      const status = await checkFcmBackendStatus();
+      setFcmStatus(status);
+    } catch {
+      setFcmStatus({ configured: false, error: 'Cannot reach backend server' });
+    } finally {
+      setCheckingFcm(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFcmStatus();
+  }, []);
 
   useEffect(() => {
     setFormData((prev) => ({
@@ -168,29 +191,29 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in pb-16 md:pb-6 max-w-6xl mx-auto">
       {/* Top Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#0F0D24] border border-purple-900/40 shadow-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#141215] border border-[#29252A] shadow-xl">
         <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-purple-600/30 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-md shrink-0">
+          <div className="w-12 h-12 rounded-2xl bg-[#1B181C] border border-[#C9A34E]/30 flex items-center justify-center text-[#C9A34E] shadow-md shrink-0">
             <Scale className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase">
+              <h1 className="text-lg sm:text-xl font-black text-[#F5F5F5] tracking-wide uppercase">
                 Legal & Platform Policies
               </h1>
-              <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-purple-900/60 text-purple-200 rounded-md border border-purple-700/50">
+              <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[#1B181C] text-[#B0ACB0] rounded-md border border-[#29252A]">
                 User App Policies
               </span>
             </div>
-            <p className="text-xs text-purple-300/80 mt-0.5">
+            <p className="text-xs text-[#B0ACB0] mt-0.5">
               Manage the Terms & Conditions, Fair Play Rules & Anti-Cheat Policy, and Privacy Policy published live to players.
             </p>
           </div>
         </div>
 
         {isSaved && (
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-lg animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#350A12]/80 border border-[#C9A34E]/40 text-[#C9A34E] text-xs font-bold shadow-lg animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 text-[#C9A34E]" />
             <span>Policies Saved & Published!</span>
           </div>
         )}
@@ -198,17 +221,17 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Section 0: Payment & UPI Config */}
-        <div className="bg-[#120E2E] border border-purple-900/30 rounded-2xl p-5 sm:p-6 shadow-md hover:border-purple-800/40 transition">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-950/50 mb-4">
+        <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 sm:p-6 shadow-md hover:border-[#29252A]/80 transition">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#29252A] mb-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-blue-950/80 border border-blue-700/40 flex items-center justify-center text-blue-300 shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-[#1B181C] border border-[#29252A] flex items-center justify-center text-[#C9A34E] shrink-0">
                 <IndianRupee className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm sm:text-base font-black text-white uppercase tracking-wide">
+                <h2 className="text-sm sm:text-base font-black text-[#F5F5F5] uppercase tracking-wide">
                   Payment & UPI Config
                 </h2>
-                <p className="text-[11px] text-purple-300/70">
+                <p className="text-[11px] text-[#777278]">
                   Manage the UPI ID and QR code details shown to users during manual deposit.
                 </p>
               </div>
@@ -217,62 +240,62 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
-              <label className="block text-[10px] font-extrabold uppercase text-purple-300 mb-1.5">UPI ID (VPA)</label>
+              <label className="block text-[10px] font-extrabold uppercase text-[#B0ACB0] mb-1.5">UPI ID (VPA)</label>
               <input
                 type="text"
                 value={formData.upiId || ''}
                 onChange={(e) => setFormData({ ...formData, upiId: e.target.value })}
                 placeholder="e.g. yourname@ybl"
-                className="w-full bg-[#181338] text-white text-xs p-3 rounded-xl border border-purple-800/40 focus:outline-none focus:border-amber-400"
+                className="w-full bg-[#171418] text-[#F5F5F5] text-xs p-3 rounded-xl border border-[#29252A] placeholder-[#777278] focus:outline-none focus:border-[#C9A34E]"
               />
             </div>
             <div>
-              <label className="block text-[10px] font-extrabold uppercase text-purple-300 mb-1.5">UPI Name</label>
+              <label className="block text-[10px] font-extrabold uppercase text-[#B0ACB0] mb-1.5">UPI Name</label>
               <input
                 type="text"
                 value={formData.upiName || ''}
                 onChange={(e) => setFormData({ ...formData, upiName: e.target.value })}
                 placeholder="e.g. WinX7 Esports"
-                className="w-full bg-[#181338] text-white text-xs p-3 rounded-xl border border-purple-800/40 focus:outline-none focus:border-amber-400"
+                className="w-full bg-[#171418] text-[#F5F5F5] text-xs p-3 rounded-xl border border-[#29252A] placeholder-[#777278] focus:outline-none focus:border-[#C9A34E]"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-[10px] font-extrabold uppercase text-purple-300 mb-1.5">Deposit QR Image URL (Optional)</label>
+              <label className="block text-[10px] font-extrabold uppercase text-[#B0ACB0] mb-1.5">Deposit QR Image URL (Optional)</label>
               <div className="flex gap-3">
                 <input
                   type="text"
                   value={formData.depositQrImageUrl || ''}
                   onChange={(e) => setFormData({ ...formData, depositQrImageUrl: e.target.value })}
                   placeholder="https://..."
-                  className="w-full bg-[#181338] text-white text-xs p-3 rounded-xl border border-purple-800/40 focus:outline-none focus:border-amber-400"
+                  className="w-full bg-[#171418] text-[#F5F5F5] text-xs p-3 rounded-xl border border-[#29252A] placeholder-[#777278] focus:outline-none focus:border-[#C9A34E]"
                 />
               </div>
             </div>
             <div className="md:col-span-2">
-              <label className="block text-[10px] font-extrabold uppercase text-purple-300 mb-1.5">Deposit Instructions</label>
+              <label className="block text-[10px] font-extrabold uppercase text-[#B0ACB0] mb-1.5">Deposit Instructions</label>
               <textarea
                 rows={3}
                 value={formData.depositInstructions || ''}
                 onChange={(e) => setFormData({ ...formData, depositInstructions: e.target.value })}
                 placeholder="Scan QR or copy UPI ID to pay..."
-                className="w-full bg-[#181338] text-white text-xs p-3 rounded-xl border border-purple-800/40 focus:outline-none focus:border-amber-400 leading-relaxed custom-scrollbar"
+                className="w-full bg-[#171418] text-[#F5F5F5] text-xs p-3 rounded-xl border border-[#29252A] placeholder-[#777278] focus:outline-none focus:border-[#C9A34E] leading-relaxed custom-scrollbar"
               />
             </div>
           </div>
         </div>
 
         {/* Section 1: TERMS & CONDITIONS / FAIR PLAY & ANTI-CHEAT RULES */}
-        <div className="bg-[#120E2E] border border-purple-900/30 rounded-2xl p-5 sm:p-6 shadow-md hover:border-purple-800/40 transition">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-950/50 mb-4">
+        <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 sm:p-6 shadow-md hover:border-[#29252A]/80 transition">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#29252A] mb-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-indigo-950/80 border border-indigo-700/40 flex items-center justify-center text-indigo-300 shrink-0">
-                <Shield className="w-4 h-4 text-amber-400" />
+              <div className="w-9 h-9 rounded-xl bg-[#1B181C] border border-[#29252A] flex items-center justify-center text-[#B0ACB0] shrink-0">
+                <Shield className="w-4 h-4 text-[#C9A34E]" />
               </div>
               <div>
-                <h2 className="text-sm sm:text-base font-black text-white uppercase tracking-wide">
+                <h2 className="text-sm sm:text-base font-black text-[#F5F5F5] uppercase tracking-wide">
                   TERMS & CONDITIONS / FAIR PLAY & ANTI-CHEAT RULES
                 </h2>
-                <p className="text-[11px] text-purple-300/70">
+                <p className="text-[11px] text-[#777278]">
                   Single unified database field storing both tournament Terms & Conditions and Fair Play / Anti-Cheat integrity rules published to the User App.
                 </p>
               </div>
@@ -282,7 +305,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               <button
                 type="button"
                 onClick={() => handleLoadTemplate('termsAndFairPlay')}
-                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-purple-900/40 hover:bg-purple-800 text-purple-300 hover:text-white border border-purple-800/50 flex items-center gap-1 transition"
+                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] flex items-center gap-1 transition cursor-pointer"
                 title="Load Complete Combined Template (Terms + Fair Play / Anti-Cheat)"
               >
                 <RotateCcw className="w-3 h-3" />
@@ -291,7 +314,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               <button
                 type="button"
                 onClick={() => handleLoadTemplate('appendTerms')}
-                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-indigo-950/60 hover:bg-indigo-900 text-indigo-300 hover:text-white border border-indigo-800/50 flex items-center gap-1 transition"
+                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] flex items-center gap-1 transition cursor-pointer"
                 title="Append Terms & Conditions section"
               >
                 <Plus className="w-3 h-3" />
@@ -300,7 +323,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               <button
                 type="button"
                 onClick={() => handleLoadTemplate('appendFairPlay')}
-                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-amber-950/60 hover:bg-amber-900 text-amber-300 hover:text-white border border-amber-800/50 flex items-center gap-1 transition"
+                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-[#1B181C] hover:bg-[#C9A34E]/20 text-[#C9A34E] hover:text-amber-300 border border-[#C9A34E]/30 flex items-center gap-1 transition cursor-pointer"
                 title="Append Fair Play & Anti-Cheat section"
               >
                 <Plus className="w-3 h-3" />
@@ -309,7 +332,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               <button
                 type="button"
                 onClick={() => handleCopy(formData.termsAndFairPlayRulesText || '', 'termsAndFairPlay')}
-                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-purple-900/40 hover:bg-purple-800 text-purple-300 hover:text-white border border-purple-800/50 flex items-center gap-1 transition"
+                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] flex items-center gap-1 transition cursor-pointer"
               >
                 <Copy className="w-3 h-3" />
                 <span>{copiedField === 'termsAndFairPlay' ? 'Copied' : 'Copy'}</span>
@@ -323,27 +346,27 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               value={formData.termsAndFairPlayRulesText || ''}
               onChange={(e) => setFormData({ ...formData, termsAndFairPlayRulesText: e.target.value })}
               placeholder="Enter official tournament platform terms & conditions, fair play rules, and anti-cheat policies..."
-              className="w-full bg-[#181338] text-white text-xs sm:text-sm p-3.5 rounded-xl border border-purple-800/40 focus:outline-none focus:border-amber-400 font-mono leading-relaxed custom-scrollbar"
+              className="w-full bg-[#171418] text-[#F5F5F5] text-xs sm:text-sm p-3.5 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E] font-mono leading-relaxed custom-scrollbar"
             />
-            <div className="flex items-center justify-between mt-1.5 text-[10px] text-purple-400/80 px-1">
-              <span>Syncs directly to Supabase field: <code className="text-amber-300 font-mono">terms_and_fair_play_rules_text</code> (app_config id='general')</span>
+            <div className="flex items-center justify-between mt-1.5 text-[10px] text-[#777278] px-1">
+              <span>Syncs directly to Supabase field: <code className="text-[#C9A34E] font-mono">terms_and_fair_play_rules_text</code> (app_config id='general')</span>
               <span>{(formData.termsAndFairPlayRulesText || '').length} characters</span>
             </div>
           </div>
         </div>
 
         {/* Section 2: Privacy Policy */}
-        <div className="bg-[#120E2E] border border-purple-900/30 rounded-2xl p-5 sm:p-6 shadow-md hover:border-purple-800/40 transition">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-950/50 mb-4">
+        <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 sm:p-6 shadow-md hover:border-[#29252A]/80 transition">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#29252A] mb-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-emerald-950/80 border border-emerald-700/40 flex items-center justify-center text-emerald-300 shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-[#1B181C] border border-[#29252A] flex items-center justify-center text-[#C9A34E] shrink-0">
                 <Lock className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm sm:text-base font-black text-white uppercase tracking-wide">
+                <h2 className="text-sm sm:text-base font-black text-[#F5F5F5] uppercase tracking-wide">
                   Privacy Policy
                 </h2>
-                <p className="text-[11px] text-purple-300/70">
+                <p className="text-[11px] text-[#777278]">
                   Data protection disclosure explaining how gamer UIDs, emails, and wallet data are secured.
                 </p>
               </div>
@@ -353,7 +376,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               <button
                 type="button"
                 onClick={() => handleLoadTemplate('privacyPolicy')}
-                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-purple-900/40 hover:bg-purple-800 text-purple-300 hover:text-white border border-purple-800/50 flex items-center gap-1 transition"
+                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] flex items-center gap-1 transition cursor-pointer"
                 title="Load Standard Privacy Template"
               >
                 <RotateCcw className="w-3 h-3" />
@@ -362,7 +385,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               <button
                 type="button"
                 onClick={() => handleCopy(formData.privacyPolicyText || formData.privacyPolicy || '', 'privacy')}
-                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-purple-900/40 hover:bg-purple-800 text-purple-300 hover:text-white border border-purple-800/50 flex items-center gap-1 transition"
+                className="px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] flex items-center gap-1 transition cursor-pointer"
               >
                 <Copy className="w-3 h-3" />
                 <span>{copiedField === 'privacy' ? 'Copied' : 'Copy'}</span>
@@ -376,18 +399,100 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
               value={formData.privacyPolicyText || formData.privacyPolicy || ''}
               onChange={(e) => setFormData({ ...formData, privacyPolicyText: e.target.value, privacyPolicy: e.target.value })}
               placeholder="Enter official player privacy policy and data protection terms..."
-              className="w-full bg-[#181338] text-white text-xs sm:text-sm p-3.5 rounded-xl border border-purple-800/40 focus:outline-none focus:border-amber-400 font-mono leading-relaxed custom-scrollbar"
+              className="w-full bg-[#171418] text-[#F5F5F5] text-xs sm:text-sm p-3.5 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E] font-mono leading-relaxed custom-scrollbar"
             />
-            <div className="flex items-center justify-between mt-1.5 text-[10px] text-purple-400/80 px-1">
+            <div className="flex items-center justify-between mt-1.5 text-[10px] text-[#777278] px-1">
               <span>Published live to User App Privacy Policy section.</span>
               <span>{(formData.privacyPolicyText || formData.privacyPolicy || '').length} characters</span>
             </div>
           </div>
         </div>
 
+        {/* Section 4: Push Notifications & FCM Sender Engine */}
+        <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 sm:p-6 shadow-md hover:border-[#29252A]/80 transition">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#29252A] mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-[#1B181C] border border-[#29252A] flex items-center justify-center text-[#C9A34E] shrink-0">
+                <Bell className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-sm sm:text-base font-black text-[#F5F5F5] uppercase tracking-wide">
+                  Push Notifications (FCM Engine)
+                </h2>
+                <p className="text-[11px] text-[#777278]">
+                  Automated server-side sender for withdrawal approvals and tournament match results.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={loadFcmStatus}
+              disabled={checkingFcm}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B181C] border border-[#29252A] text-xs font-bold text-[#B0ACB0] hover:text-white transition cursor-pointer"
+            >
+              <Radio className={`w-3.5 h-3.5 ${checkingFcm ? 'animate-spin text-[#C9A34E]' : 'text-emerald-400'}`} />
+              <span>{checkingFcm ? 'Checking...' : 'Refresh Status'}</span>
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#1B181C] border border-[#29252A]">
+              <div className="flex items-center gap-3">
+                <div className={`w-3 h-3 rounded-full ${fcmStatus?.configured ? 'bg-emerald-500 shadow-lg shadow-emerald-500/50 animate-pulse' : 'bg-amber-500'}`} />
+                <div>
+                  <div className="text-xs font-bold text-[#F5F5F5]">
+                    {fcmStatus?.configured ? 'FCM Server-Side Gateway Connected' : 'FCM Server Ready (Awaiting Production Credentials)'}
+                  </div>
+                  <div className="text-[11px] text-[#777278]">
+                    {fcmStatus?.configured
+                      ? 'Secure backend is ready to dispatch notifications directly to user FCM device tokens.'
+                      : 'Set FIREBASE_SERVICE_ACCOUNT in Cloud Run or server environment secrets to activate live delivery.'}
+                  </div>
+                </div>
+              </div>
+              <span className={`px-2.5 py-1 text-[10px] font-black uppercase rounded-lg border ${
+                fcmStatus?.configured
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+              }`}>
+                {fcmStatus?.configured ? 'Active' : 'Standby'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-[#171418] border border-[#29252A]">
+                <div className="text-[10px] font-extrabold text-[#C9A34E] uppercase mb-1">
+                  1. Withdrawal Approval Trigger (WINX7 💸)
+                </div>
+                <div className="text-[11px] text-[#B0ACB0] space-y-1">
+                  <p><strong className="text-white">Title:</strong> WINX7 💸</p>
+                  <p><strong className="text-white">Body:</strong> Your withdrawal request is successfully processed.</p>
+                  <p className="text-[10px] text-[#777278] pt-1 border-t border-[#29252A]">
+                    Fires targeted direct notification to user device when withdrawal is approved.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[#171418] border border-[#29252A]">
+                <div className="text-[10px] font-extrabold text-[#C9A34E] uppercase mb-1">
+                  2. Match Results Trigger (WINX7 🏆)
+                </div>
+                <div className="text-[11px] text-[#B0ACB0] space-y-1">
+                  <p><strong className="text-white">Title:</strong> WINX7 🏆</p>
+                  <p><strong className="text-white">Body:</strong> Result is out! Open the app to see your winnings.</p>
+                  <p className="text-[10px] text-[#777278] pt-1 border-t border-[#29252A]">
+                    Fires ONE multicast notification to all joined participants with duplicate protection.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Sticky Action Footer */}
-        <div className="sticky bottom-4 z-20 flex items-center justify-between gap-4 p-4 rounded-2xl bg-[#0F0D24]/95 backdrop-blur-md border border-purple-800/50 shadow-2xl">
-          <div className="text-xs text-purple-300 hidden sm:block">
+        <div className="sticky bottom-4 z-20 flex items-center justify-between gap-4 p-4 rounded-2xl bg-[#141215]/95 backdrop-blur-md border border-[#29252A] shadow-2xl">
+          <div className="text-xs text-[#B0ACB0] hidden sm:block">
             Changes will be immediately verified and persisted to Supabase database (id='general').
           </div>
 
@@ -398,7 +503,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
                 handleLoadTemplate('termsAndFairPlay');
                 handleLoadTemplate('privacyPolicy');
               }}
-              className="px-4 py-2.5 rounded-xl bg-purple-900/40 hover:bg-purple-800 text-purple-200 text-xs font-bold border border-purple-700/50 transition active:scale-95"
+              className="px-4 py-2.5 rounded-xl bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white text-xs font-bold border border-[#29252A] transition active:scale-95 cursor-pointer"
             >
               Fill All Default Templates
             </button>
@@ -406,7 +511,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
             <button
               type="submit"
               disabled={isSaving}
-              className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 transition disabled:opacity-50"
+              className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#C9A34E] via-amber-400 to-[#C9A34E] hover:brightness-110 text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 transition disabled:opacity-50 cursor-pointer"
             >
               <Save className="w-4 h-4" />
               <span>{isSaving ? 'Saving to Database...' : 'Save Policies & Rules'}</span>

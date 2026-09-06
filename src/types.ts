@@ -332,7 +332,7 @@ export interface Banner {
   createdAt: string;
 }
 
-export type NotificationType = 'all' | 'match' | 'deposit' | 'withdrawal' | 'announcement';
+export type NotificationType = 'all' | 'match' | 'deposit' | 'withdrawal' | 'announcement' | 'WITHDRAWAL_SUCCESS' | 'RESULT' | 'CUSTOM' | 'MATCH_REMINDER';
 
 export interface AppNotification {
   id: string;
@@ -507,3 +507,55 @@ export interface MatchRulesPreset {
   rules: string;
   createdAt: string;
 }
+
+export interface SupportMessage {
+  id: string;
+  senderType: 'user' | 'staff' | 'admin' | 'system';
+  senderId: string;
+  senderName: string;
+  senderEmail?: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface SupportActivity {
+  id: string;
+  type: 'join' | 'transfer' | 'resolve' | 'reopen' | 'message' | 'assign' | 'unassign';
+  operatorId: string;
+  operatorName: string;
+  operatorRole: string;
+  details: string;
+  timestamp: string;
+}
+
+export interface SupportConversation {
+  id: string;
+  userId: string;
+  username: string;
+  email?: string;
+  ign?: string;
+  uid?: string;
+  category: string;
+  status: 'waiting' | 'active' | 'closed';
+  unreadCount: number;
+  assignedStaffId: string | null;
+  assignedStaffName: string | null;
+  assignedStaffEmail?: string | null;
+  claimedAt?: string | null;
+  lastMessage: string;
+  lastMessageAt: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: SupportMessage[];
+  activityLog: SupportActivity[];
+}
+
+export interface SupportCategory {
+  id: string;
+  name: string;
+  isActive: boolean;
+  displayOrder: number;
+  description?: string;
+  createdAt: string;
+}
+

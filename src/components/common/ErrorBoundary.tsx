@@ -43,8 +43,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
   public render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-[#0A0814] text-white flex flex-col items-center justify-center p-6 text-center">
-          <div className="bg-[#130F26] border border-red-500/30 rounded-2xl p-8 max-w-lg w-full shadow-2xl flex flex-col items-center">
+        <div className="min-h-screen bg-[#080708] text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="bg-[#141215] border border-red-500/30 rounded-2xl p-8 max-w-lg w-full shadow-2xl flex flex-col items-center">
             <div className="w-16 h-16 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 mb-4">
               <AlertTriangle className="w-8 h-8" />
             </div>
@@ -58,7 +58,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             </p>
 
             {this.state.error && (
-              <div className="w-full bg-[#0A0814] border border-gray-800 rounded-lg p-3 mb-6 text-left overflow-x-auto max-h-40">
+              <div className="w-full bg-[#080708] border border-[#29252A] rounded-lg p-3 mb-6 text-left overflow-x-auto max-h-40">
                 <p className="text-xs font-mono text-red-400 font-semibold mb-1">
                   {this.state.error.name}: {this.state.error.message}
                 </p>
@@ -73,7 +73,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <div className="flex flex-col sm:flex-row gap-3 w-full">
               <button
                 onClick={this.handleReset}
-                className="flex-1 py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 px-4 bg-[#E21B36] hover:bg-[#E21B36] text-white font-semibold text-xs rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
               >
                 Try Recovering View
               </button>

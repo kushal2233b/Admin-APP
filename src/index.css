@@ -1,1 +1,304 @@
 @import "tailwindcss";
+
+/* 
+  ==========================================================================
+  WINX7 BRANDING THEME OVERRIDES (Tailwind CSS v4.0)
+  ==========================================================================
+*/
+
+@theme {
+  --color-winx-bg: #080708;
+  --color-winx-secondary: #0D0B0D;
+  --color-winx-card: #141215;
+  --color-winx-elevated: #1B181C;
+  --color-winx-input: #171418;
+  --color-winx-darkburgundy: #350A12;
+  --color-winx-burgundy: #4A0D16;
+  --color-winx-burgundylight: #601321;
+  --color-winx-crimson: #E21B36;
+  --color-winx-brightcrimson: #FF3048;
+  --color-winx-darkgold: #8C6A24;
+  --color-winx-gold: #C9A34E;
+  --color-winx-primarytext: #F5F5F5;
+  --color-winx-secondarytext: #B0ACB0;
+  --color-winx-mutedtext: #777278;
+  --color-winx-border: #29252A;
+
+  /* Redefine default Tailwind color palettes so legacy colors translate automatically to the WINX7 palette */
+  --color-purple-50: #F5F5F5;
+  --color-purple-100: #B0ACB0;
+  --color-purple-200: #B0ACB0;
+  --color-purple-300: #B0ACB0;
+  --color-purple-400: #777278;
+  --color-purple-500: #FF3048;
+  --color-purple-600: #E21B36;
+  --color-purple-700: #4A0D16;
+  --color-purple-800: #350A12;
+  --color-purple-900: #141215;
+  --color-purple-950: #0D0B0D;
+
+  --color-indigo-50: #F5F5F5;
+  --color-indigo-100: #B0ACB0;
+  --color-indigo-200: #B0ACB0;
+  --color-indigo-300: #B0ACB0;
+  --color-indigo-400: #777278;
+  --color-indigo-500: #FF3048;
+  --color-indigo-600: #E21B36;
+  --color-indigo-700: #4A0D16;
+  --color-indigo-800: #350A12;
+  --color-indigo-900: #141215;
+  --color-indigo-950: #0D0B0D;
+
+  --color-violet-50: #F5F5F5;
+  --color-violet-100: #B0ACB0;
+  --color-violet-200: #B0ACB0;
+  --color-violet-300: #B0ACB0;
+  --color-violet-400: #777278;
+  --color-violet-500: #FF3048;
+  --color-violet-600: #E21B36;
+  --color-violet-700: #4A0D16;
+  --color-violet-800: #350A12;
+  --color-violet-900: #141215;
+  --color-violet-950: #0D0B0D;
+
+  --color-slate-50: #F5F5F5;
+  --color-slate-100: #B0ACB0;
+  --color-slate-200: #B0ACB0;
+  --color-slate-300: #B0ACB0;
+  --color-slate-400: #777278;
+  --color-slate-500: #FF3048;
+  --color-slate-600: #E21B36;
+  --color-slate-700: #4A0D16;
+  --color-slate-800: #29252A;
+  --color-slate-900: #141215;
+  --color-slate-950: #080708;
+
+  --color-zinc-50: #F5F5F5;
+  --color-zinc-100: #B0ACB0;
+  --color-zinc-200: #B0ACB0;
+  --color-zinc-300: #B0ACB0;
+  --color-zinc-400: #777278;
+  --color-zinc-500: #FF3048;
+  --color-zinc-600: #E21B36;
+  --color-zinc-700: #4A0D16;
+  --color-zinc-800: #29252A;
+  --color-zinc-900: #141215;
+  --color-zinc-950: #080708;
+
+  --color-neutral-50: #F5F5F5;
+  --color-neutral-100: #B0ACB0;
+  --color-neutral-200: #B0ACB0;
+  --color-neutral-300: #B0ACB0;
+  --color-neutral-400: #777278;
+  --color-neutral-500: #FF3048;
+  --color-neutral-600: #E21B36;
+  --color-neutral-700: #4A0D16;
+  --color-neutral-800: #29252A;
+  --color-neutral-900: #141215;
+  --color-neutral-950: #080708;
+
+  --color-gray-50: #F5F5F5;
+  --color-gray-100: #B0ACB0;
+  --color-gray-200: #B0ACB0;
+  --color-gray-300: #B0ACB0;
+  --color-gray-400: #777278;
+  --color-gray-500: #FF3048;
+  --color-gray-600: #E21B36;
+  --color-gray-700: #4A0D16;
+  --color-gray-800: #29252A;
+  --color-gray-900: #141215;
+  --color-gray-950: #080708;
+
+  --color-emerald-50: #F5F5F5;
+  --color-emerald-100: #B0ACB0;
+  --color-emerald-200: #B0ACB0;
+  --color-emerald-300: #C9A34E;
+  --color-emerald-400: #C9A34E;
+  --color-emerald-500: #C9A34E;
+  --color-emerald-600: #8C6A24;
+  --color-emerald-700: #4A0D16;
+  --color-emerald-800: #350A12;
+  --color-emerald-900: #1B181C;
+  --color-emerald-950: #0D0B0D;
+
+  --color-green-50: #F5F5F5;
+  --color-green-100: #B0ACB0;
+  --color-green-200: #B0ACB0;
+  --color-green-300: #C9A34E;
+  --color-green-400: #C9A34E;
+  --color-green-500: #C9A34E;
+  --color-green-600: #8C6A24;
+  --color-green-700: #4A0D16;
+  --color-green-800: #350A12;
+  --color-green-900: #1B181C;
+  --color-green-950: #0D0B0D;
+
+  --color-amber-50: #F5F5F5;
+  --color-amber-100: #B0ACB0;
+  --color-amber-200: #B0ACB0;
+  --color-amber-300: #C9A34E;
+  --color-amber-400: #C9A34E;
+  --color-amber-500: #C9A34E;
+  --color-amber-600: #8C6A24;
+  --color-amber-700: #4A0D16;
+  --color-amber-800: #350A12;
+  --color-amber-900: #1B181C;
+  --color-amber-950: #0D0B0D;
+
+  --color-red-50: #F5F5F5;
+  --color-red-100: #B0ACB0;
+  --color-red-200: #B0ACB0;
+  --color-red-300: #FF3048;
+  --color-red-400: #FF3048;
+  --color-red-500: #E21B36;
+  --color-red-600: #4A0D16;
+  --color-red-700: #350A12;
+  --color-red-800: #29252A;
+  --color-red-900: #141215;
+  --color-red-950: #0D0B0D;
+
+  --color-rose-50: #F5F5F5;
+  --color-rose-100: #B0ACB0;
+  --color-rose-200: #B0ACB0;
+  --color-rose-300: #FF3048;
+  --color-rose-400: #FF3048;
+  --color-rose-500: #E21B36;
+  --color-rose-600: #4A0D16;
+  --color-rose-700: #350A12;
+  --color-rose-800: #29252A;
+  --color-rose-900: #141215;
+  --color-rose-950: #0D0B0D;
+}
+
+:root {
+  --bg-color: #080708;
+  --bg-secondary: #0D0B0D;
+  --bg-card: #141215;
+  --bg-elevated: #1B181C;
+  --bg-input: #171418;
+  --dark-burgundy: #350A12;
+  --burgundy: #4A0D16;
+  --burgundy-light: #601321;
+  --primary-crimson: #E21B36;
+  --bright-crimson: #FF3048;
+  --dark-gold: #8C6A24;
+  --premium-gold: #C9A34E;
+  --primary-text: #F5F5F5;
+  --secondary-text: #B0ACB0;
+  --muted-text: #777278;
+  --border-color: #29252A;
+}
+
+/* Force global theme background and text on root elements */
+body, html, #root, .min-h-screen {
+  background-color: var(--bg-color) !important;
+  color: var(--primary-text) !important;
+}
+
+/* Base Headings letter-spacing and weight */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: 0.05em !important;
+  font-weight: 900 !important;
+}
+
+/* Custom CSS utility mapping rules for hardcoded legacy background/border colors */
+.bg-\[\#0A0814\], .bg-\[\#0d0714\], .bg-slate-950, .bg-\[\#080612\] {
+  background-color: var(--bg-color) !important;
+}
+
+.bg-\[\#0F0D1A\], .bg-\[\#120F24\]\/90, .bg-\[\#120F24\], .bg-\[\#140b20\], .bg-\[\#110c1d\], .bg-\[\#130F29\], .bg-\[\#15112E\] {
+  background-color: var(--bg-secondary) !important;
+  background-image: none !important;
+}
+
+.bg-\[\#1b0e27\], .bg-\[\#1A1538\], .bg-\[\#1E1942\], .bg-\[\#141029\], .bg-\[\#181433\], .bg-\[\#1A1638\] {
+  background-color: var(--bg-card) !important;
+}
+
+.bg-\[\#1B181C\], .bg-\[\#1c030c\] {
+  background-color: var(--bg-elevated) !important;
+}
+
+.bg-\[\#171418\], .bg-\[\#030104\] {
+  background-color: var(--bg-input) !important;
+}
+
+/* Force override input/textarea default styles */
+input, textarea, select {
+  background-color: var(--bg-input) !important;
+  color: var(--primary-text) !important;
+  border-color: var(--border-color) !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--primary-crimson) !important;
+}
+
+/* Hardcoded borders mapping */
+.border-purple-900\/40, 
+.border-purple-800\/40,
+.border-purple-800\/80,
+.border-purple-800\/30,
+.border-purple-800\/50,
+.border-purple-700\/50,
+.border-purple-950, 
+.border-\[\#2d1238\], 
+.border-\[\#3f194d\], 
+.border-purple-900, 
+.border-purple-700,
+.border-\[\#2d0d18\],
+.border-\[\#3f0e21\] {
+  border-color: var(--border-color) !important;
+}
+
+/* Clean scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--dark-burgundy);
+}
+
+/* ==========================================================================
+   GLOBAL MAPPINGS FOR REMAINING LEGACY PURPLE REMNANTS
+   ========================================================================== */
+.from-purple-900\/80, .from-purple-900\/90, .from-purple-950\/80, .via-indigo-950\/80, .via-indigo-950\/90, .to-purple-950 {
+  background-image: linear-gradient(to right, var(--bg-card), var(--bg-secondary)) !important;
+}
+.from-purple-600, .from-purple-900, .from-amber-500, .via-purple-600, .to-indigo-600, .to-indigo-900 {
+  background-image: linear-gradient(to right, var(--burgundy), var(--primary-crimson)) !important;
+}
+.from-amber-500\/20, .to-purple-600\/30 {
+  background-image: linear-gradient(to bottom right, rgba(201, 163, 78, 0.1), rgba(74, 13, 22, 0.2)) !important;
+}
+.bg-purple-800 {
+  background-color: var(--burgundy) !important;
+}
+.bg-\[\#100D28\], .bg-\[\#0A081D\] {
+  background-color: var(--bg-input) !important;
+}
+
+/* Legacy Rings & Dividers Mapping */
+.ring-purple-600\/50, .ring-purple-700\/50, .ring-purple-600, .ring-purple-700 {
+  --tw-ring-color: var(--border-color) !important;
+  border-color: var(--border-color) !important;
+}
+.divide-purple-950, .divide-purple-900\/30, .divide-purple-900\/20, .divide-purple-900\/10 {
+  border-color: var(--border-color) !important;
+}
+
+/* Legacy Shadows and Placeholders Mapping */
+.shadow-purple-950, .shadow-purple-950\/80, .shadow-purple-950\/60, .shadow-purple-950\/25 {
+  --tw-shadow-color: rgba(0, 0, 0, 0.8) !important;
+}
+.placeholder-purple-400\/40::placeholder, .placeholder-purple-400\/60::placeholder {
+  color: var(--muted-text) !important;
+}

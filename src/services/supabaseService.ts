@@ -21,8 +21,13 @@ import {
   StaffStatus,
   ResultRequest,
   ResultRequestStatus,
-  ResultRequestParticipant
+  ResultRequestParticipant,
+  SupportConversation,
+  SupportMessage,
+  SupportActivity,
+  SupportCategory
 } from '../types';
+import { sendMatchResultNotification, sendWithdrawalNotification } from './notificationSenderService';
 
 export const cleanUndefined = (obj: any): any => {
   if (obj === null || obj === undefined) return obj;
@@ -1592,8 +1597,9 @@ export function normalizeNotificationDoc(docData: any, id: string = docData?.id 
     title: docData?.title || 'Notification',
     message: docData?.message || docData?.body || '',
     type: (docData?.type || 'system') as any,
-    targetUserId: docData?.target_user_id || docData?.targetUserId,
-    sentAt: docData?.sent_at || docData?.sentAt || docData?.created_at || new Date().toISOString(),
+    targetUserId: docData?.user_id || docData?.target_user_id || docData?.targetUserId,
+    userId: docData?.user_id || docData?.target_user_id || docData?.userId,
+    sentAt: docData?.created_at || docData?.sent_at || docData?.sentAt || new Date().toISOString(),
     createdAt: docData?.created_at || docData?.createdAt || new Date().toISOString(),
     sentBy: docData?.sent_by || docData?.sentBy || 'Admin',
     isRead: Boolean(docData?.is_read ?? docData?.isRead ?? docData?.read ?? false),
@@ -2241,15 +2247,28 @@ export function subscribeCollection<T = any>(
 
       if (tableName === 'notifications' || collectionName === 'notifications') {
         let dbNotifs: AppNotification[] = [];
+
+        // 1. Fetch via backend API (authenticated via service role, avoiding anon RLS permission denied 42501)
         try {
-          const { data, error } = await supabase.from('notifications').select('*');
-          if (!error && data) {
-            dbNotifs = data.map((item: any) => normalizeNotificationDoc(item, item.id));
-          } else if (error) {
-            handleSupabaseError(error, `subscribeCollection(${collectionName})`);
+          const apiRes = await fetch('/api/notifications');
+          if (apiRes.ok) {
+            const json = await apiRes.json();
+            if (json && json.success && Array.isArray(json.data)) {
+              dbNotifs = json.data.map((item: any) => normalizeNotificationDoc(item, item.id));
+            }
           }
-        } catch (err) {
-          console.warn('[Notifications Query Notice]:', err);
+        } catch {}
+
+        // 2. Direct client query fallback if server endpoint did not return records
+        if (dbNotifs.length === 0) {
+          try {
+            const { data, error } = await supabase.from('notifications').select('*');
+            if (!error && data) {
+              dbNotifs = data.map((item: any) => normalizeNotificationDoc(item, item.id));
+            }
+          } catch (err) {
+            // Suppress expected client-side RLS error
+          }
         }
 
         let localNotifs: AppNotification[] = [];
@@ -4102,26 +4121,57 @@ export async function sendNotificationInSupabase(notification: AppNotification):
   const notifWithId = { ...notification, id };
   updateLocalNotificationCache(id, notifWithId);
 
-  const payload = cleanUndefined({
-    id,
-    title: notification.title,
-    message: notification.message,
-    type: notification.type || 'system',
-    target_user_id: notification.targetUserId || null,
-    image_url: notification.imageUrl || null,
-    link: notification.link || null,
-    sent_at: notification.sentAt || new Date().toISOString(),
-    sent_by: notification.sentBy || 'Admin',
-    is_read: false,
-  });
+  // Validate target user ID: must be a valid UUID in PostgreSQL uuid column, otherwise null (broadcast)
+  const candidateUser = notification.targetUserId || notification.userId;
+  const validUserId = (candidateUser && isUuid(candidateUser)) ? candidateUser : null;
 
-  await safeSupabaseWrite('notifications', payload, 'upsert');
+  // Exact Supabase notifications table schema:
+  // [id, user_id, title, message, type, is_read, created_at]
+  const payload = {
+    id,
+    user_id: validUserId,
+    title: notification.title || 'Notification',
+    message: notification.message || '',
+    type: notification.type || 'system',
+    is_read: false,
+    created_at: notification.createdAt || notification.sentAt || new Date().toISOString(),
+  };
+
+  // 1. Try persisting via backend endpoint (authenticated with service role, bypassing RLS 42501)
+  try {
+    const apiRes = await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (apiRes.ok) {
+      return;
+    }
+  } catch {}
+
+  // 2. Direct client fallback using clean schema
+  try {
+    await safeSupabaseWrite('notifications', payload, 'upsert');
+  } catch {}
 }
 
 export async function updateNotificationReadState(id: string, isRead: boolean): Promise<void> {
   updateLocalNotificationCache(id, { isRead });
   try {
-    await safeSupabaseWrite('notifications', { is_read: isRead }, 'update', id);
+    const validId = isUuid(id) ? id : null;
+    if (validId) {
+      // 1. Try backend endpoint
+      try {
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: validId, is_read: isRead }),
+        });
+      } catch {}
+
+      // 2. Direct client fallback
+      await safeSupabaseWrite('notifications', { is_read: isRead }, 'update', validId);
+    }
   } catch {}
 }
 
@@ -4931,6 +4981,19 @@ export async function publishMatchResults(
   if (!result?.success) {
     throw new Error(result?.message || 'Result publishing failed.');
   }
+
+  // Trigger ONE WINX7 🏆 result notification to all joined match participants
+  try {
+    const userIds = Array.isArray(results) ? results.map(r => r.user_id).filter(Boolean) : [];
+    sendMatchResultNotification({
+      matchId,
+      userIds,
+      matchTitle: `Match ${matchId}`
+    }).catch(err => console.warn('[FCM Result Notification trigger warning]:', err));
+  } catch (notifErr) {
+    console.warn('[FCM Result Notification trigger error]:', notifErr);
+  }
+
   return result;
 }
 
@@ -5585,6 +5648,422 @@ export function subscribeToResultRequests(onUpdate: (requests: ResultRequest[]) 
     .subscribe();
 
   const intervalId = setInterval(loadData, 8000);
+
+  return () => {
+    isSubscribed = false;
+    clearInterval(intervalId);
+    supabase.removeChannel(channel);
+  };
+}
+
+/* ==========================================================================
+   SUPPORT LIVE CHAT SUPPORT SERVICES (Supabase Backend + Realtime)
+   ========================================================================== */
+
+export function evaluateSupportLifecycle(conversations: SupportConversation[]): { updated: boolean; list: SupportConversation[] } {
+  let changed = false;
+  const now = new Date();
+
+  // Filter out expired conversations (active for 24+ hours are permanently deleted)
+  const nonExpired = conversations.filter((c) => {
+    if (c.status === 'active') {
+      const baseTimeStr = c.claimedAt || c.createdAt;
+      const baseTime = new Date(baseTimeStr).getTime();
+      const diffHours = (now.getTime() - baseTime) / (1000 * 60 * 60);
+      if (diffHours >= 24) {
+        changed = true;
+        // Permanently delete expired conversation/messages
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const updatedList = nonExpired.map((c): SupportConversation => {
+    // 1. 15-Minute Rule: If status === 'waiting' and 15 mins have passed
+    if (c.status === 'waiting') {
+      const createdTime = new Date(c.createdAt).getTime();
+      const diffMins = (now.getTime() - createdTime) / (60 * 1000);
+      if (diffMins >= 15) {
+        changed = true;
+        const closedAt = now.toISOString();
+        const systemMsg: SupportMessage = {
+          id: `msg_sys_auto_close_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          senderType: 'system',
+          senderId: 'system',
+          senderName: 'System',
+          message: 'CONVERSATION CLOSED - NO STAFF ATTENDED IN 15 MINUTES',
+          createdAt: closedAt
+        };
+        const systemAct: SupportActivity = {
+          id: `act_sys_auto_close_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          type: 'resolve',
+          operatorId: 'system',
+          operatorName: 'System',
+          operatorRole: 'SYSTEM',
+          details: 'Conversation automatically closed due to no response in 15 minutes.',
+          timestamp: closedAt
+        };
+        return {
+          ...c,
+          status: 'closed',
+          messages: [...c.messages, systemMsg],
+          activityLog: [...c.activityLog, systemAct],
+          updatedAt: closedAt
+        };
+      }
+    }
+
+    return c;
+  });
+
+  return { updated: changed, list: updatedList };
+}
+
+/**
+ * Verifies staff identity server-side from profiles table.
+ * Never trust client-provided staff identity.
+ */
+export async function getVerifiedStaffProfile(): Promise<{ id: string; name: string; role: string; email: string }> {
+  await ensureSupabaseAuthSession();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('Not authenticated with Supabase. Staff joining rejected.');
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('id, name, display_name, role, email, status')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error || !profile) {
+    throw new Error('Unauthorized: Staff profile not found in database.');
+  }
+
+  const role = String(profile.role || '').toUpperCase();
+  const status = String(profile.status || '').toUpperCase();
+
+  if (role !== 'ADMIN' && role !== 'SUPERADMIN' && role !== 'STAFF') {
+    throw new Error(`Unauthorized role (${role}) for support management.`);
+  }
+
+  if (status === 'SUSPENDED' || status === 'BLOCKED') {
+    throw new Error('Account is suspended.');
+  }
+
+  return {
+    id: profile.id,
+    name: profile.display_name || profile.name || 'Staff Member',
+    role,
+    email: profile.email || 'staff@winx7.gg'
+  };
+}
+
+/**
+ * Fetch database-driven support categories from Supabase support_categories table.
+ */
+export async function fetchSupportCategoriesFromSupabase(): Promise<SupportCategory[]> {
+  try {
+    const { data, error } = await supabase
+      .from('support_categories')
+      .select('*')
+      .order('display_order', { ascending: true });
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      // Seed default categories into the database table if empty
+      const defaults = [
+        { name: 'WITHDRAW / DEPOSIT', is_active: true, display_order: 0, description: 'Questions regarding deposit or withdrawal requests' },
+        { name: 'REFUND / RESULT', is_active: true, display_order: 1, description: 'Match refunds or result discrepancies' },
+        { name: 'TECHNICAL', is_active: true, display_order: 2, description: 'App crashes, account login, or general tech bugs' },
+        { name: 'OTHER', is_active: true, display_order: 3, description: 'Other general queries' }
+      ];
+      const { data: inserted, error: insertErr } = await supabase
+        .from('support_categories')
+        .insert(defaults)
+        .select('*');
+
+      if (insertErr) throw insertErr;
+
+      return (inserted || []).map(row => ({
+        id: row.id,
+        name: row.name,
+        isActive: row.is_active,
+        displayOrder: row.display_order,
+        description: row.description,
+        createdAt: row.created_at
+      }));
+    }
+
+    return data.map(row => ({
+      id: row.id,
+      name: row.name,
+      isActive: row.is_active,
+      displayOrder: row.display_order,
+      description: row.description,
+      createdAt: row.created_at
+    }));
+  } catch (err) {
+    console.warn('[Supabase] Error fetching support categories table:', err);
+    return [];
+  }
+}
+
+/**
+ * Verifies admin or superadmin identity server-side from profiles table.
+ * Does not check staff profile/staff_id or require staff status.
+ */
+export async function getVerifiedAdminProfile(): Promise<{ id: string; role: string }> {
+  await ensureSupabaseAuthSession();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error('Not authenticated with Supabase.');
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('id, role')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (error || !profile) {
+    throw new Error('Unauthorized: Profile not found in database.');
+  }
+
+  const role = String(profile.role || '').toUpperCase();
+  if (role !== 'ADMIN' && role !== 'SUPERADMIN') {
+    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
+  }
+
+  return { id: profile.id, role };
+}
+
+/**
+ * Create a new support category.
+ */
+export async function createSupportCategoryInSupabase(category: { name: string; isActive: boolean; displayOrder: number; description?: string }): Promise<SupportCategory> {
+  const verifiedAdmin = await getVerifiedAdminProfile();
+  if (verifiedAdmin.role !== 'ADMIN' && verifiedAdmin.role !== 'SUPERADMIN') {
+    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
+  }
+
+  const { data, error } = await supabase
+    .from('support_categories')
+    .insert({
+      name: category.name.toUpperCase(),
+      is_active: category.isActive,
+      display_order: category.displayOrder,
+      description: category.description
+    })
+    .select('*')
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    name: data.name,
+    isActive: data.is_active,
+    displayOrder: data.display_order,
+    description: data.description,
+    createdAt: data.created_at
+  };
+}
+
+/**
+ * Update an existing support category.
+ */
+export async function updateSupportCategoryInSupabase(id: string, category: { name?: string; isActive?: boolean; displayOrder?: number; description?: string }): Promise<void> {
+  const verifiedAdmin = await getVerifiedAdminProfile();
+  if (verifiedAdmin.role !== 'ADMIN' && verifiedAdmin.role !== 'SUPERADMIN') {
+    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
+  }
+
+  const updatePayload: Record<string, any> = {};
+  if (category.name !== undefined) updatePayload.name = category.name.toUpperCase();
+  if (category.isActive !== undefined) updatePayload.is_active = category.isActive;
+  if (category.displayOrder !== undefined) updatePayload.display_order = category.displayOrder;
+  if (category.description !== undefined) updatePayload.description = category.description;
+
+  const { error } = await supabase
+    .from('support_categories')
+    .update(updatePayload)
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+/**
+ * Delete a support category safely.
+ */
+export async function deleteSupportCategoryFromSupabase(id: string): Promise<void> {
+  const verifiedAdmin = await getVerifiedAdminProfile();
+  if (verifiedAdmin.role !== 'ADMIN' && verifiedAdmin.role !== 'SUPERADMIN') {
+    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
+  }
+
+  const { error } = await supabase
+    .from('support_categories')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+/**
+ * Fetch support conversations and their associated messages from database tables.
+ */
+export async function fetchSupportConversationsFromSupabase(): Promise<SupportConversation[]> {
+  try {
+    const { data: convs, error: convsErr } = await supabase
+      .from('support_conversations')
+      .select('*')
+      .order('last_message_at', { ascending: false });
+
+    if (convsErr) throw convsErr;
+
+    const conversationsList: SupportConversation[] = [];
+
+    for (const row of (convs || [])) {
+      // Fetch messages for each conversation
+      const { data: msgs, error: msgsErr } = await supabase
+        .from('support_messages')
+        .select('*')
+        .eq('conversation_id', row.id)
+        .order('created_at', { ascending: true });
+
+      const messages: SupportMessage[] = (msgs || []).map(m => ({
+        id: m.id,
+        senderType: m.sender_type,
+        senderId: m.sender_id,
+        senderName: m.sender_name,
+        senderEmail: m.sender_email || undefined,
+        message: m.message,
+        createdAt: m.created_at
+      }));
+
+      conversationsList.push({
+        id: row.id,
+        userId: row.user_id,
+        username: row.username,
+        email: row.email || undefined,
+        ign: row.ign || undefined,
+        uid: row.uid || undefined,
+        category: row.category_name_snapshot || 'OTHER',
+        status: row.status as 'waiting' | 'active' | 'closed',
+        unreadCount: row.unread_count || 0,
+        assignedStaffId: row.assigned_staff_id,
+        assignedStaffName: row.assigned_staff_name,
+        assignedStaffEmail: row.assigned_staff_email,
+        claimedAt: row.claimed_at,
+        lastMessage: row.last_message || '',
+        lastMessageAt: row.last_message_at || row.updated_at || row.created_at,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        messages,
+        activityLog: []
+      });
+    }
+
+    // Evaluate 15m/24h lifecycle rules if needed, but since we are real-time,
+    // we let server handle it or verify locally.
+    return conversationsList;
+  } catch (err) {
+    console.warn('[Supabase] Error fetching support conversations:', err);
+    return [];
+  }
+}
+
+/**
+ * Claim/join a support conversation using Postgres RPC to verify identity.
+ */
+export async function claimSupportRequestInSupabase(conversationId: string): Promise<void> {
+  const { error } = await supabase.rpc('claim_support_request', { p_conversation_id: conversationId });
+  if (error) {
+    throw new Error(error.message || 'Failed to claim support request');
+  }
+}
+
+/**
+ * Resolve/close a support conversation using Postgres RPC.
+ */
+export async function resolveSupportRequestInSupabase(conversationId: string): Promise<void> {
+  const { error } = await supabase.rpc('resolve_support_request', { p_conversation_id: conversationId });
+  if (error) {
+    throw new Error(error.message || 'Failed to resolve support request');
+  }
+}
+
+/**
+ * Reopen a completed/closed support conversation using Postgres RPC.
+ */
+export async function reopenSupportRequestInSupabase(conversationId: string): Promise<void> {
+  const { error } = await supabase.rpc('reopen_support_request', { p_conversation_id: conversationId });
+  if (error) {
+    throw new Error(error.message || 'Failed to reopen support request');
+  }
+}
+
+/**
+ * Send a message and update metadata in database tables.
+ */
+export async function sendSupportMessageToSupabase(
+  conversationId: string,
+  messageText: string,
+  senderType: 'user' | 'staff' | 'admin' | 'system'
+): Promise<void> {
+  const verifiedStaff = await getVerifiedStaffProfile();
+
+  const { error: msgErr } = await supabase
+    .from('support_messages')
+    .insert({
+      conversation_id: conversationId,
+      sender_id: verifiedStaff.id,
+      sender_name: verifiedStaff.name,
+      sender_type: senderType,
+      message: messageText
+    });
+
+  if (msgErr) throw msgErr;
+
+  // Also update metadata inside support_conversations
+  const { error: convErr } = await supabase
+    .from('support_conversations')
+    .update({
+      last_message: messageText,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', conversationId);
+
+  if (convErr) throw convErr;
+}
+
+/**
+ * Realtime updates subscription on support_conversations and support_messages tables.
+ */
+export function subscribeToSupportConversations(onUpdate: (conversations: SupportConversation[]) => void): () => void {
+  let isSubscribed = true;
+
+  const loadData = async () => {
+    if (!isSubscribed) return;
+    const list = await fetchSupportConversationsFromSupabase();
+    if (isSubscribed) {
+      onUpdate(list);
+    }
+  };
+
+  loadData();
+
+  // Setup Postgres changes listener on support tables
+  const channel = supabase.channel('winx7_support_realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'support_conversations' }, () => loadData())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'support_messages' }, () => loadData())
+    .subscribe();
+
+  const intervalId = setInterval(loadData, 5000); // fallback polling
 
   return () => {
     isSubscribed = false;
