@@ -17,11 +17,10 @@ import { DepositsView } from './components/wallet/DepositsView';
 import { WithdrawalsView } from './components/wallet/WithdrawalsView';
 import { CouponManagement } from './components/coupons/CouponManagement';
 
-import { LiveChatSupport } from './components/support/LiveChatSupport';
-import { SupportCategoriesManagement } from './components/support/SupportCategoriesManagement';
 import { ReportsAnalytics } from './components/reports/ReportsAnalytics';
 import { StaffManagement } from './components/staff/StaffManagement';
 import { SystemSettings } from './components/settings/SystemSettings';
+import { SupportManagement } from './components/support/SupportManagement';
 import { SavedImagesManagement } from './components/images/SavedImagesManagement';
 import { ResultRequestsManagement } from './components/results/ResultRequestsManagement';
 import { CustomNotifications } from './components/notifications/CustomNotifications';
@@ -94,6 +93,7 @@ import {
   initialSystemSettings,
   initialAuditLogs
 } from './data/mockData';
+import { getCategoryBannerImage } from './data/categoryImages';
 
 import {
   AppUser,
@@ -117,7 +117,6 @@ function MainPortalContent() {
   const { currentUser } = useAuth();
 
   const [activeTab, setActiveTab] = useState(() => (currentUser?.role === 'staff' ? 'matches' : 'dashboard'));
-  const [supportSubTab, setSupportSubTab] = useState<'live_chat' | 'categories'>('live_chat');
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   // Enforce staff role restriction: Staff users can ONLY access tournament matches
@@ -240,7 +239,6 @@ function MainPortalContent() {
   const [extraUserWithdrawals, setExtraUserWithdrawals] = useState<any[]>([]);
   const [extraWithdrawRequests, setExtraWithdrawRequests] = useState<any[]>([]);
   const [extraWithdrawRequestsCamel, setExtraWithdrawRequestsCamel] = useState<any[]>([]);
-  const [banners, setBanners] = useState<any[]>([]);
   const [matchRules, setMatchRules] = useState<MatchRulesPreset[]>([]);
   const [savedImages, setSavedImages] = useState<SavedImage[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>(initialNotifications);
@@ -700,7 +698,15 @@ function MainPortalContent() {
 
     const unsubCategories = subscribeCollection<MatchCategory>('categories', (items) => {
       const list = items || [];
-      const sorted = [...list].sort((a, b) => {
+      // Filter out any legacy entries where GAME was accidentally stored as category name
+      const validCategories = list.filter(c => {
+        const n = c?.name?.toUpperCase() || '';
+        return n !== 'FREE FIRE' && n !== 'FREEFIRE' && n !== 'BGMI' && !n.includes('BATTLEGROUND');
+      });
+
+      const effectiveList = validCategories.length > 0 ? validCategories : initialCategories;
+
+      const sorted = [...effectiveList].sort((a, b) => {
         const sa = a.sortOrder ?? a.displayOrder ?? a.order ?? 999;
         const sb = b.sortOrder ?? b.displayOrder ?? b.order ?? 999;
         return sa - sb;
@@ -980,7 +986,7 @@ function MainPortalContent() {
       email: string;
       phone: string;
       inGameName: string;
-      inGameId: string;
+      inGameId?: string;
       avatar_id?: string;
       avatarId?: string;
       avatarUrl?: string;
@@ -999,7 +1005,6 @@ function MainPortalContent() {
                 email: profileData.email,
                 phone: profileData.phone,
                 inGameName: profileData.inGameName,
-                inGameId: profileData.inGameId,
                 avatar_id: avatarId,
                 avatarId: avatarId,
                 avatarUrl: resolvedAvatarUrl,
@@ -1026,8 +1031,7 @@ function MainPortalContent() {
         `Profile details for ${profileData.username || userId} have been successfully saved across database and app.`,
         [
           { label: 'Username', value: profileData.username },
-          { label: 'Free Fire IGN', value: profileData.inGameName },
-          { label: 'Free Fire UID', value: profileData.inGameId },
+          { label: 'In-Game Name (IGN)', value: profileData.inGameName },
           { label: 'Avatar Preset', value: `${avatarId.toUpperCase().replace('_', ' ')}` }
         ],
         'PROFILE UPDATED',
@@ -1902,14 +1906,20 @@ function MainPortalContent() {
     });
   };
 
-  const handleDeleteSavedImage = async (imageId: string) => {
-    const matched = savedImages.find((img) => img.id === imageId);
+  const handleDeleteSavedImage = async (imageId: string, storagePathOrUrl?: string) => {
+    const matched = savedImages.find((img) => img.id === imageId || img.id === `saved_image_${imageId}`);
     const imageName = matched ? matched.name : imageId;
-    await runAsyncAction('Deleting saved image from library...', async () => {
-      setSavedImages((prev) => prev.filter((img) => img.id !== imageId));
-      await deleteSavedImageFromFirestore(imageId);
+    const targetFile = storagePathOrUrl || matched?.storagePath || matched?.url;
+
+    // Instant optimistic removal from UI state
+    setSavedImages((prev) => prev.filter((img) => img.id !== imageId && img.id !== `saved_image_${imageId}`));
+
+    try {
+      await deleteSavedImageFromFirestore(imageId, targetFile);
       pushAudit('Deleted Saved Image', imageName);
-    });
+    } catch (err) {
+      console.warn('[handleDeleteSavedImage] Notice during deletion:', err);
+    }
   };
 
   const pendingDepositsCount = transactions.filter((t) => t.type === 'deposit' && t.status === 'pending').length;
@@ -2080,52 +2090,12 @@ function MainPortalContent() {
             />
           )}
 
-
           {activeTab === 'coupons' && (
             <CouponManagement
               coupons={coupons}
               onSaveCoupon={handleSaveCoupon}
               onDeleteCoupon={handleDeleteCoupon}
             />
-          )}
-
-          {activeTab === 'support' && (
-            <div className="flex flex-col h-full bg-[#080708] min-h-0 overflow-hidden" id="support-main-section">
-              {/* Internal Subtabs Selector */}
-              <div className="flex border-b border-[#29252A] bg-[#0D0B0D] p-2 space-x-2 flex-shrink-0">
-                <button
-                  id="support-subtab-live-chat"
-                  onClick={() => setSupportSubTab('live_chat')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold tracking-wide uppercase transition-all cursor-pointer ${
-                    supportSubTab === 'live_chat'
-                      ? 'bg-[#C9A34E] text-black shadow-lg shadow-amber-500/10'
-                      : 'bg-[#141215] text-[#B0ACB0] hover:text-[#F5F5F5] border border-[#29252A]'
-                  }`}
-                >
-                  💬 Live Support Chats
-                </button>
-                <button
-                  id="support-subtab-categories"
-                  onClick={() => setSupportSubTab('categories')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold tracking-wide uppercase transition-all cursor-pointer ${
-                    supportSubTab === 'categories'
-                      ? 'bg-[#C9A34E] text-black shadow-lg shadow-amber-500/10'
-                      : 'bg-[#141215] text-[#B0ACB0] hover:text-[#F5F5F5] border border-[#29252A]'
-                  }`}
-                >
-                  📁 Support Categories
-                </button>
-              </div>
-
-              {/* Subtab Content Viewports */}
-              <div className="flex-1 overflow-hidden min-h-0">
-                {supportSubTab === 'live_chat' ? (
-                  <LiveChatSupport />
-                ) : (
-                  <SupportCategoriesManagement />
-                )}
-              </div>
-            </div>
           )}
 
           {activeTab === 'reports' && (
@@ -2144,6 +2114,10 @@ function MainPortalContent() {
               onUpdateStaffStatus={handleUpdateStaffStatus}
               onDeleteStaff={handleDeleteStaff}
             />
+          )}
+
+          {activeTab === 'support-management' && (
+            <SupportManagement users={users} />
           )}
 
           {activeTab === 'settings' && (

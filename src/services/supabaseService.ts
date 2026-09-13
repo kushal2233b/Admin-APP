@@ -22,12 +22,11 @@ import {
   ResultRequest,
   ResultRequestStatus,
   ResultRequestParticipant,
-  SupportConversation,
-  SupportMessage,
-  SupportActivity,
-  SupportCategory
+  SupportStaffMember,
+  SupportCategoryItem
 } from '../types';
 import { sendMatchResultNotification, sendWithdrawalNotification } from './notificationSenderService';
+import { deleteFromStorage } from './storageService';
 
 export const cleanUndefined = (obj: any): any => {
   if (obj === null || obj === undefined) return obj;
@@ -407,7 +406,84 @@ export function normalizeTournamentDoc(
   const maxSlotsTotal = Number(docData?.total_slots ?? docData?.max_slots ?? docData?.maxSlots ?? docData?.max_participants ?? docData?.maxParticipants ?? 48);
   const actualJoinedCount = finalParticipants.length;
 
-  const gameName = docData?.game || docData?.category_name || docData?.category || 'BGMI';
+  // Extract metadata from winner_note if available
+  let metaGame = '';
+  let metaMatchCategory = '';
+  if (docData?.winner_note) {
+    try {
+      const parsed = typeof docData.winner_note === 'string' ? JSON.parse(docData.winner_note) : docData.winner_note;
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.game) metaGame = String(parsed.game).trim().toUpperCase();
+        if (parsed.match_category || parsed.matchCategory) metaMatchCategory = String(parsed.match_category || parsed.matchCategory).trim().toUpperCase();
+      }
+    } catch {}
+  }
+
+  // 1. Determine GAME (Must be FREE FIRE or BGMI)
+  let gameName: string = 'FREE FIRE';
+  const rawGame = String(docData?.game || metaGame || docData?.game_category || docData?.game_name || docData?.gameName || '').toUpperCase().trim();
+  const rawTitle = String(docData?.title || docData?.name || '').toUpperCase().trim();
+  const rawCat = String(docData?.category_name || docData?.category || docData?.match_category || docData?.matchCategory || metaMatchCategory || '').toUpperCase().trim();
+  const rawMap = String(docData?.map_name || docData?.map || '').toUpperCase().trim();
+  const rawMode = String(docData?.mode || docData?.match_type || docData?.matchType || '').toUpperCase().trim();
+  const rawDesc = String(docData?.description || docData?.desc || '').toUpperCase().trim();
+  const rawMaxSlots = Number(docData?.total_slots ?? docData?.max_slots ?? docData?.maxSlots ?? docData?.max_participants ?? docData?.maxParticipants ?? 0);
+
+  const isBgmiSignals = 
+    rawGame === 'BGMI' || 
+    rawGame.includes('BATTLEGROUND') || 
+    rawGame === 'PUBG' ||
+    rawTitle.includes('BGMI') || 
+    rawTitle.includes('BATTLEGROUND') ||
+    rawTitle.includes('PUBG') ||
+    rawCat === 'BGMI' || 
+    rawCat.includes('BATTLEGROUND') ||
+    ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK', 'NUSA', 'KARAKIN'].includes(rawMap) ||
+    rawMode.includes('TDM') || 
+    rawMode.includes('ULTIMATE ROYALE') ||
+    rawDesc.includes('BGMI') ||
+    rawDesc.includes('BATTLEGROUND') ||
+    rawMaxSlots === 100;
+
+  if (isBgmiSignals) {
+    gameName = 'BGMI';
+  } else if (rawGame === 'FREE FIRE' || rawGame === 'FREEFIRE' || rawGame === 'FF' || rawTitle.includes('FREE FIRE') || rawTitle.includes('FREEFIRE') || rawCat === 'FREE FIRE' || rawCat === 'FREEFIRE' || ['BERMUDA', 'NEXTERRA', 'KALAHARI', 'ALPINE', 'PURGATORY'].includes(rawMap) || rawMode.includes('CLASH SQUAD') || rawMode.includes('LONE WOLF') || rawMaxSlots === 48) {
+    gameName = 'FREE FIRE';
+  } else if (rawGame) {
+    gameName = rawGame;
+  }
+
+  console.log('[DEBUG TRACE 6] User App Supabase query raw "game_category":', docData?.game_category ?? docData?.gameCategory ?? 'NULL');
+  console.log('[DEBUG TRACE 7] Models.kt received Tournament.game_category:', docData?.game_category ?? docData?.gameCategory ?? gameName);
+  console.log('[DEBUG TRACE 8] displayGameCategory GAME badge:', gameName);
+
+  // 2. Determine MATCH CATEGORY (SURVIVOR, ARENA, LONE WOLF, etc.)
+  let matchCategoryName = 'SURVIVOR';
+  const rawExplicitCat = docData?.match_category || docData?.matchCategory || docData?.category_name || docData?.category;
+  if (rawExplicitCat && typeof rawExplicitCat === 'string' && rawExplicitCat.trim()) {
+    const upper = rawExplicitCat.trim().toUpperCase();
+    if (upper === 'FREE FIRE' || upper === 'FREEFIRE' || upper === 'BGMI' || upper.includes('BATTLEGROUND')) {
+      const modeUpper = String(docData?.mode || docData?.match_type || docData?.matchType || '').toUpperCase();
+      if (modeUpper.includes('LONE WOLF') || modeUpper.includes('1 VS 1') || modeUpper.includes('2 VS 2')) {
+        matchCategoryName = 'LONE WOLF';
+      } else if (modeUpper.includes('ARENA') || modeUpper.includes('TDM') || modeUpper.includes('CLASH SQUAD') || modeUpper.includes('4 VS 4')) {
+        matchCategoryName = 'ARENA';
+      } else {
+        matchCategoryName = 'SURVIVOR';
+      }
+    } else {
+      matchCategoryName = rawExplicitCat.trim().toUpperCase();
+    }
+  } else {
+    const modeUpper = String(docData?.mode || docData?.match_type || docData?.matchType || '').toUpperCase();
+    if (modeUpper.includes('LONE WOLF')) {
+      matchCategoryName = 'LONE WOLF';
+    } else if (modeUpper.includes('ARENA') || modeUpper.includes('TDM') || modeUpper.includes('CLASH SQUAD')) {
+      matchCategoryName = 'ARENA';
+    } else {
+      matchCategoryName = 'SURVIVOR';
+    }
+  }
 
   const rawBanner =
     docData?.banner_url ||
@@ -514,7 +590,10 @@ export function normalizeTournamentDoc(
       id: id || docData?.id || `tournament-${Date.now()}`,
       title: docData?.title || docData?.name || 'Untitled Tournament',
       game: gameName,
-      category: gameName,
+      gameCategory: gameName,
+      game_category: gameName,
+      matchCategory: matchCategoryName,
+      category: matchCategoryName,
       categoryId: docData?.category_id || docData?.categoryId,
       bannerUrl: resolvedBanner,
       thumbnailUrl: resolvedBanner,
@@ -794,13 +873,62 @@ export function normalizeUserDoc(docData: any, id: string = docData?.id || docDa
     ''
   );
 
-  const inGameId = extractCleanString(
+  const ffUid = extractCleanString(
+    docData?.ff_uid ||
+    docData?.ffUid ||
     docData?.free_fire_uid ||
     docData?.freefire_uid ||
     docData?.free_fire_id ||
     docData?.freefire_id ||
-    docData?.ff_uid ||
     docData?.ff_id ||
+    meta?.ff_uid ||
+    meta?.free_fire_uid,
+    ''
+  );
+
+  const ffIgn = extractCleanString(
+    docData?.ff_ign ||
+    docData?.ffIgn ||
+    docData?.free_fire_ign ||
+    docData?.freefire_ign ||
+    docData?.free_fire_name ||
+    docData?.freeFireName ||
+    docData?.ff_name ||
+    meta?.ff_ign ||
+    meta?.free_fire_ign,
+    ''
+  );
+
+  const bgmiUid = extractCleanString(
+    docData?.bgmi_uid ||
+    docData?.bgmiUid ||
+    docData?.bgmi_id ||
+    docData?.bgmiId ||
+    docData?.pubg_id ||
+    docData?.pubgId ||
+    docData?.pubg_uid ||
+    docData?.pubgUid ||
+    meta?.bgmi_uid ||
+    meta?.bgmiUid ||
+    meta?.bgmi_id,
+    ''
+  );
+
+  const bgmiIgn = extractCleanString(
+    docData?.bgmi_ign ||
+    docData?.bgmiIgn ||
+    docData?.bgmi_name ||
+    docData?.bgmiName ||
+    docData?.pubg_name ||
+    docData?.pubgName ||
+    meta?.bgmi_ign ||
+    meta?.bgmiIgn ||
+    meta?.bgmi_name,
+    ''
+  );
+
+  const inGameId = extractCleanString(
+    ffUid ||
     docData?.in_game_id ||
     docData?.inGameId ||
     docData?.inGameID ||
@@ -816,9 +944,6 @@ export function normalizeUserDoc(docData: any, id: string = docData?.id || docDa
     docData?.playerUid ||
     docData?.ign_id ||
     docData?.ignId ||
-    meta?.free_fire_uid ||
-    meta?.freefire_uid ||
-    meta?.ff_uid ||
     meta?.in_game_id ||
     meta?.inGameId ||
     meta?.game_id ||
@@ -828,12 +953,7 @@ export function normalizeUserDoc(docData: any, id: string = docData?.id || docDa
   );
 
   const inGameName = extractCleanString(
-    docData?.free_fire_ign ||
-    docData?.freefire_ign ||
-    docData?.free_fire_name ||
-    docData?.freeFireName ||
-    docData?.ff_ign ||
-    docData?.ff_name ||
+    ffIgn ||
     docData?.in_game_name ||
     docData?.inGameName ||
     docData?.inGameNAME ||
@@ -844,9 +964,6 @@ export function normalizeUserDoc(docData: any, id: string = docData?.id || docDa
     docData?.playerName ||
     docData?.gamer_name ||
     docData?.gamerName ||
-    meta?.free_fire_ign ||
-    meta?.freefire_ign ||
-    meta?.ff_ign ||
     meta?.in_game_name ||
     meta?.inGameName ||
     meta?.ign ||
@@ -896,6 +1013,14 @@ export function normalizeUserDoc(docData: any, id: string = docData?.id || docDa
     phone,
     inGameId,
     inGameName,
+    ff_uid: ffUid || inGameId,
+    ffUid: ffUid || inGameId,
+    ff_ign: ffIgn || inGameName,
+    ffIgn: ffIgn || inGameName,
+    bgmi_uid: bgmiUid,
+    bgmiUid: bgmiUid,
+    bgmi_ign: bgmiIgn,
+    bgmiIgn: bgmiIgn,
     avatar_id: avatarId,
     avatarId: avatarId,
     avatarUrl,
@@ -1274,7 +1399,8 @@ export async function ensureUserProfileExists(user: any): Promise<AppUser> {
  */
 export function resolveUserDisplayName(
   input: any,
-  users: AppUser[] = []
+  users: AppUser[] = [],
+  matchContext?: any
 ): {
   username: string;
   inGameName: string;
@@ -1308,6 +1434,34 @@ export function resolveUserDisplayName(
     }
   }
 
+  const isMatchBgmi = Boolean(
+    matchContext && (
+      (typeof matchContext === 'boolean' && matchContext) ||
+      (typeof matchContext === 'string' && (matchContext.toUpperCase() === 'BGMI' || matchContext.toUpperCase().includes('BATTLEGROUND') || matchContext.toUpperCase() === 'PUBG')) ||
+      ((matchContext.game || '').toUpperCase() === 'BGMI') ||
+      ((matchContext.game || '').toUpperCase().includes('BATTLEGROUND')) ||
+      ((matchContext.game || '').toUpperCase() === 'PUBG') ||
+      ((matchContext.title || '').toUpperCase().includes('BGMI')) ||
+      ((matchContext.title || '').toUpperCase().includes('BATTLEGROUND')) ||
+      ((matchContext.title || '').toUpperCase().includes('PUBG')) ||
+      ((matchContext.category || '').toUpperCase() === 'BGMI') ||
+      ((matchContext.matchCategory || '').toUpperCase() === 'BGMI') ||
+      (((matchContext as any).category_name || '').toUpperCase() === 'BGMI') ||
+      (((matchContext as any).game_name || '').toUpperCase() === 'BGMI') ||
+      ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK', 'NUSA', 'KARAKIN'].includes(((matchContext.map || '') as string).toUpperCase()) ||
+      ((matchContext.matchType || '') as string).toUpperCase().includes('TDM') ||
+      ((matchContext.matchType || '') as string).toUpperCase().includes('ULTIMATE ROYALE') ||
+      Number(matchContext.maxSlots || matchContext.maxParticipants) === 100
+    )
+  );
+
+  const isBgmi = isMatchBgmi || Boolean(
+    parsed && typeof parsed === 'object' && (
+      parsed.bgmi_uid || parsed.bgmiUid || parsed.bgmi_ign || parsed.bgmiIgn || parsed.pubgId ||
+      (parsed.game || '').toUpperCase() === 'BGMI'
+    )
+  );
+
   // If input is a raw primitive string or number (e.g. user UUID, email, or username)
   if (typeof parsed === 'string' || typeof parsed === 'number') {
     const str = String(parsed).trim();
@@ -1318,8 +1472,8 @@ export function resolveUserDisplayName(
       const uId = (u.id || '').toLowerCase().trim();
       const uUid = (u.uid || '').toLowerCase().trim();
       const uEmail = (u.email || '').toLowerCase().trim();
-      const uInGameId = (u.inGameId || '').toLowerCase().trim();
-      const uInGameName = (u.inGameName || '').toLowerCase().trim();
+      const uInGameId = (u.inGameId || (u as any).bgmiUid || (u as any).ffUid || '').toLowerCase().trim();
+      const uInGameName = (u.inGameName || (u as any).bgmiIgn || (u as any).ffIgn || '').toLowerCase().trim();
       const uUsername = (u.username || '').toLowerCase().trim();
 
       return (
@@ -1340,17 +1494,28 @@ export function resolveUserDisplayName(
         (matchedUser.email ? matchedUser.email.split('@')[0] : '') ||
         'User';
 
-      const bestIgn =
-        (matchedUser.inGameName && matchedUser.inGameName !== 'N/A' && matchedUser.inGameName !== 'Player' ? matchedUser.inGameName : '') ||
-        (matchedUser.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
-        bestUsername ||
-        'N/A';
+      let bestIgn = 'N/A';
+      let bestUid = 'N/A';
 
-      const bestUid =
-        (matchedUser.inGameId && matchedUser.inGameId !== 'N/A' ? matchedUser.inGameId : '') ||
-        (matchedUser.uid && matchedUser.uid !== 'N/A' ? matchedUser.uid : '') ||
-        (matchedUser.id && matchedUser.id !== 'N/A' ? matchedUser.id : '') ||
-        'N/A';
+      if (isBgmi) {
+        bestIgn = (matchedUser as any).bgmiIgn || (matchedUser as any).bgmi_ign || (matchedUser as any).bgmiName || (matchedUser as any).pubgName || matchedUser.inGameName;
+        bestUid = (matchedUser as any).bgmiUid || (matchedUser as any).bgmi_uid || (matchedUser as any).bgmiId || (matchedUser as any).pubgId || matchedUser.inGameId;
+      } else {
+        bestIgn = (matchedUser as any).ffIgn || (matchedUser as any).ff_ign || matchedUser.inGameName;
+        bestUid = (matchedUser as any).ffUid || (matchedUser as any).ff_uid || matchedUser.inGameId;
+      }
+
+      if (!bestIgn || bestIgn === 'N/A') {
+        bestIgn = (matchedUser.inGameName && matchedUser.inGameName !== 'N/A' && matchedUser.inGameName !== 'Player' ? matchedUser.inGameName : '') ||
+                  (matchedUser.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+                  bestUsername || 'N/A';
+      }
+
+      if (!bestUid || bestUid === 'N/A') {
+        bestUid = (matchedUser.inGameId && matchedUser.inGameId !== 'N/A' ? matchedUser.inGameId : '') ||
+                  (matchedUser.uid && matchedUser.uid !== 'N/A' ? matchedUser.uid : '') ||
+                  (matchedUser.id && matchedUser.id !== 'N/A' ? matchedUser.id : '') || 'N/A';
+      }
 
       return {
         username: bestUsername,
@@ -1381,30 +1546,10 @@ export function resolveUserDisplayName(
   const pPhone = (parsed.phone || parsed.userPhone || parsed.user_phone || parsed.mobile || '').toString().trim();
   const pUsername = (parsed.username || parsed.user_name || parsed.displayName || parsed.display_name || parsed.name || parsed.fullName || parsed.full_name || parsed.playerName || parsed.player_name || '').toString().trim();
   const pInGameName = (
-    parsed.inGameName ||
-    parsed.in_game_name ||
-    parsed.ign ||
-    parsed.free_fire_ign ||
-    parsed.freeFireName ||
-    parsed.ff_ign ||
-    parsed.ff_name ||
-    parsed.game_name ||
-    parsed.gameName ||
-    ''
+    parsed.inGameName || parsed.in_game_name || parsed.ign || parsed.game_name || parsed.gameName || ''
   ).toString().trim();
   const pInGameId = (
-    parsed.inGameId ||
-    parsed.in_game_id ||
-    parsed.free_fire_uid ||
-    parsed.ff_uid ||
-    parsed.ff_id ||
-    parsed.game_uid ||
-    parsed.gameUid ||
-    parsed.game_id ||
-    parsed.gameId ||
-    parsed.ign_id ||
-    parsed.ignId ||
-    ''
+    parsed.inGameId || parsed.in_game_id || parsed.game_uid || parsed.gameUid || parsed.game_id || parsed.gameId || parsed.ign_id || parsed.ignId || ''
   ).toString().trim();
 
   // Find matching user in users list
@@ -1419,13 +1564,13 @@ export function resolveUserDisplayName(
     const uPhone = (u.phone || '').toString().trim();
     if (pPhone && uPhone && pPhone === uPhone) return true;
 
-    const uInGameId = (u.inGameId || (u as any).ffUid || (u as any).ignId || '').toString().toLowerCase().trim();
+    const uInGameId = (u.inGameId || (u as any).bgmiUid || (u as any).ffUid || (u as any).ignId || '').toString().toLowerCase().trim();
     if (pInGameId && uInGameId && pInGameId.toLowerCase() === uInGameId) return true;
 
     const uUsername = (u.username || (u as any).displayName || '').toString().toLowerCase().trim();
     if (pUsername && uUsername && pUsername.toLowerCase() === uUsername) return true;
 
-    const uInGameName = (u.inGameName || (u as any).ign || '').toString().toLowerCase().trim();
+    const uInGameName = (u.inGameName || (u as any).bgmiIgn || (u as any).ffIgn || (u as any).ign || '').toString().toLowerCase().trim();
     if (pInGameName && uInGameName && pInGameName.toLowerCase() === uInGameName) return true;
 
     return false;
@@ -1443,21 +1588,38 @@ export function resolveUserDisplayName(
     (pPhone ? pPhone : '') ||
     'User';
 
-  const bestIgn =
-    (matchedUser?.inGameName && matchedUser.inGameName !== 'N/A' && matchedUser.inGameName !== 'Player' ? matchedUser.inGameName : '') ||
-    (pInGameName && pInGameName !== 'N/A' && pInGameName !== 'Player' ? pInGameName : '') ||
-    (matchedUser?.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
-    (pUsername && pUsername !== 'Player' && pUsername !== 'User' ? pUsername : '') ||
-    bestUsername ||
-    'N/A';
+  let bestIgn = 'N/A';
+  let bestUid = 'N/A';
 
-  const bestUid =
-    (matchedUser?.inGameId && matchedUser.inGameId !== 'N/A' ? matchedUser.inGameId : '') ||
-    (pInGameId && pInGameId !== 'N/A' ? pInGameId : '') ||
-    (matchedUser?.uid && matchedUser.uid !== 'N/A' ? matchedUser.uid : '') ||
-    (matchedUser?.id && matchedUser.id !== 'N/A' ? matchedUser.id : '') ||
-    (pUserId && pUserId !== 'N/A' ? pUserId : '') ||
-    'N/A';
+  if (isBgmi) {
+    const userBgmiUid = (matchedUser as any)?.bgmiUid || (matchedUser as any)?.bgmi_uid || (matchedUser as any)?.bgmiId || (matchedUser as any)?.pubgId;
+    const userBgmiIgn = (matchedUser as any)?.bgmiIgn || (matchedUser as any)?.bgmi_ign || (matchedUser as any)?.bgmiName || (matchedUser as any)?.pubgName;
+
+    bestUid = userBgmiUid || parsed.bgmiUid || parsed.bgmi_uid || pInGameId || matchedUser?.inGameId || 'N/A';
+    bestIgn = userBgmiIgn || parsed.bgmiIgn || parsed.bgmi_ign || pInGameName || matchedUser?.inGameName || 'N/A';
+  } else {
+    const userFfUid = (matchedUser as any)?.ffUid || (matchedUser as any)?.ff_uid || (matchedUser as any)?.freeFireId;
+    const userFfIgn = (matchedUser as any)?.ffIgn || (matchedUser as any)?.ff_ign || (matchedUser as any)?.freeFireName;
+
+    bestUid = userFfUid || parsed.ffUid || parsed.ff_uid || pInGameId || matchedUser?.inGameId || 'N/A';
+    bestIgn = userFfIgn || parsed.ffIgn || parsed.ff_ign || pInGameName || matchedUser?.inGameName || 'N/A';
+  }
+
+  if (!bestIgn || bestIgn === 'N/A') {
+    bestIgn = (matchedUser?.inGameName && matchedUser.inGameName !== 'N/A' && matchedUser.inGameName !== 'Player' ? matchedUser.inGameName : '') ||
+              (pInGameName && pInGameName !== 'N/A' && pInGameName !== 'Player' ? pInGameName : '') ||
+              (matchedUser?.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+              (pUsername && pUsername !== 'Player' && pUsername !== 'User' ? pUsername : '') ||
+              bestUsername || 'N/A';
+  }
+
+  if (!bestUid || bestUid === 'N/A') {
+    bestUid = (matchedUser?.inGameId && matchedUser.inGameId !== 'N/A' ? matchedUser.inGameId : '') ||
+              (pInGameId && pInGameId !== 'N/A' ? pInGameId : '') ||
+              (matchedUser?.uid && matchedUser.uid !== 'N/A' ? matchedUser.uid : '') ||
+              (matchedUser?.id && matchedUser.id !== 'N/A' ? matchedUser.id : '') ||
+              (pUserId && pUserId !== 'N/A' ? pUserId : '') || 'N/A';
+  }
 
   const finalEmail = matchedUser?.email || pEmail || 'N/A';
   const finalPhone = matchedUser?.phone || pPhone || 'N/A';
@@ -1610,14 +1772,21 @@ export function normalizeNotificationDoc(docData: any, id: string = docData?.id 
 }
 
 export function normalizeCategoryDoc(docData: any, id: string = docData?.id || ''): MatchCategory {
+  const catName = String(docData?.name || docData?.title || docData?.game || docData?.category || 'Game').trim();
+  const banner = docData?.banner_url || docData?.bannerUrl || docData?.image_url || docData?.imageUrl || getCategoryBannerImage(catName);
+  const image = docData?.image_url || docData?.imageUrl || docData?.banner_url || docData?.bannerUrl || getCategoryBannerImage(catName);
+  const orderNum = Number(docData?.display_order ?? docData?.displayOrder ?? docData?.sort_order ?? docData?.sortOrder ?? docData?.order ?? 0);
+
   return {
-    id: id || docData?.id || docData?.name?.toLowerCase().replace(/\s+/g, '-'),
-    name: docData?.name || 'Game',
+    id: id || docData?.id || catName.toLowerCase().replace(/\s+/g, '-'),
+    name: catName,
     description: docData?.description || '',
     isActive: Boolean(docData?.is_active ?? docData?.isActive ?? true),
-    imageUrl: docData?.image_url || docData?.imageUrl || getCategoryBannerImage(docData?.name || ''),
-    bannerUrl: docData?.banner_url || docData?.bannerUrl || docData?.image_url || docData?.imageUrl || getCategoryBannerImage(docData?.name || ''),
-    displayOrder: Number(docData?.display_order ?? docData?.displayOrder ?? 0),
+    imageUrl: image,
+    bannerUrl: banner,
+    displayOrder: orderNum,
+    sortOrder: orderNum,
+    order: orderNum,
     createdAt: docData?.created_at || docData?.createdAt || new Date().toISOString(),
   };
 }
@@ -2139,6 +2308,12 @@ export function subscribeCollection<T = any>(
         if (!isSubscribed) return;
 
         if (collectionName === 'saved_images' || collectionName === 'savedImages') {
+          let deletedIds: string[] = [];
+          try {
+            const delRaw = localStorage.getItem('winx7_deleted_image_ids');
+            if (delRaw) deletedIds = JSON.parse(delRaw);
+          } catch {}
+
           const getItemVal = (item: any) => {
             const raw = item.value ?? item.data ?? item.content ?? item.config ?? item.payload ?? item.json_data;
             if (raw === undefined || raw === null) return item;
@@ -2148,16 +2323,27 @@ export function subscribeCollection<T = any>(
             return raw;
           };
 
+          const isDeleted = (idToCheck: string) => {
+            if (!idToCheck) return true;
+            const raw = idToCheck.replace('saved_image_', '');
+            return deletedIds.includes(idToCheck) || deletedIds.includes(raw) || deletedIds.includes(`saved_image_${raw}`);
+          };
+
           const dbImages = (data || [])
             .filter((item: any) => item.id?.startsWith('saved_image_') || item.id === 'saved_images' || item.key?.startsWith('saved_image_'))
             .map((item: any) => {
               const val = getItemVal(item);
               const cleanId = item.id?.replace('saved_image_', '') || item.key?.replace('saved_image_', '');
               if (typeof val === 'object' && val !== null) {
-                return { ...val, id: val.id || cleanId };
+                if (val.deleted === true || val.is_deleted === true) return null;
+                const finalId = val.id || cleanId;
+                if (isDeleted(finalId)) return null;
+                return { ...val, id: finalId };
               }
+              if (isDeleted(cleanId)) return null;
               return { id: cleanId, url: String(val) };
-            });
+            })
+            .filter(Boolean);
 
           let localImages: any[] = [];
           try {
@@ -2166,8 +2352,16 @@ export function subscribeCollection<T = any>(
           } catch {}
 
           const mergedMap = new Map<string, any>();
-          localImages.forEach((img) => { if (img && img.id) mergedMap.set(img.id, img); });
-          dbImages.forEach((img) => { if (img && img.id) mergedMap.set(img.id, img); });
+          localImages.forEach((img) => {
+            if (img && img.id && !isDeleted(img.id)) {
+              mergedMap.set(img.id, img);
+            }
+          });
+          dbImages.forEach((img: any) => {
+            if (img && img.id && !isDeleted(img.id)) {
+              mergedMap.set(img.id, img);
+            }
+          });
 
           const finalImages = Array.from(mergedMap.values());
           try {
@@ -2304,6 +2498,22 @@ export function subscribeCollection<T = any>(
           console.warn('[subscribeCollection users fetch error]', e);
         }
 
+        // If client-side profiles query was restricted by RLS (e.g. 0 or 1 row), query server-side admin user search endpoint
+        if (profData.length <= 1) {
+          try {
+            const headers = await getAuthHeaders();
+            const res = await fetch('/api/admin/users/search', { headers });
+            if (res.ok) {
+              const json = await res.json();
+              if (json && json.success && Array.isArray(json.data) && json.data.length > profData.length) {
+                profData = json.data;
+              }
+            }
+          } catch (serverSearchErr) {
+            console.warn('[subscribeCollection server search notice]:', serverSearchErr);
+          }
+        }
+
         const walletMap = new Map<string, any>();
         for (const w of walData) {
           if (w && w.user_id) {
@@ -2368,7 +2578,7 @@ export function subscribeCollection<T = any>(
 
       if (!isSubscribed || !data) return;
 
-      const normalized = data.map((item: any) => {
+      let normalized = data.map((item: any) => {
         switch (tableName) {
           case 'tournaments':
             return normalizeTournamentDoc(item, item.id);
@@ -2397,6 +2607,54 @@ export function subscribeCollection<T = any>(
             return item;
         }
       });
+
+      if (tableName === 'categories') {
+        // Filter out legacy accidental entries where GAME was stored as category
+        const validCats = normalized.filter((c: any) => {
+          const n = c?.name?.toUpperCase() || '';
+          return n !== 'FREE FIRE' && n !== 'FREEFIRE' && n !== 'BGMI' && !n.includes('BATTLEGROUND');
+        });
+
+        if (validCats.length === 0) {
+          normalized = [
+            normalizeCategoryDoc({
+              id: 'cat-survivor',
+              name: 'SURVIVOR',
+              description: 'Survivor & Battle Royale matches',
+              is_active: true,
+              display_order: 1,
+              order: 1,
+              sort_order: 1,
+              image_url: getCategoryBannerImage('SURVIVOR'),
+              banner_url: getCategoryBannerImage('SURVIVOR'),
+            }),
+            normalizeCategoryDoc({
+              id: 'cat-arena',
+              name: 'ARENA',
+              description: 'Arena & TDM matches',
+              is_active: true,
+              display_order: 2,
+              order: 2,
+              sort_order: 2,
+              image_url: getCategoryBannerImage('ARENA'),
+              banner_url: getCategoryBannerImage('ARENA'),
+            }),
+            normalizeCategoryDoc({
+              id: 'cat-lone-wolf',
+              name: 'LONE WOLF',
+              description: '1v1 & 2v2 Lone Wolf combat matches',
+              is_active: true,
+              display_order: 3,
+              order: 3,
+              sort_order: 3,
+              image_url: getCategoryBannerImage('LONE WOLF'),
+              banner_url: getCategoryBannerImage('LONE WOLF'),
+            }),
+          ];
+        } else {
+          normalized = validCats;
+        }
+      }
 
       callback(normalized as any);
     } catch (err: any) {
@@ -2585,6 +2843,54 @@ export async function getMatchParticipantsFromSupabase(matchId: string): Promise
 
 // Initial Data Seeding
 export async function seedInitialFirestoreDataIfEmpty(initialData?: any): Promise<void> {
+  try {
+    const { data } = await supabase.from('categories').select('*');
+    const list = data || [];
+    const validMatchCats = list.filter((c: any) => {
+      const n = c?.name?.toUpperCase() || '';
+      return n !== 'FREE FIRE' && n !== 'FREEFIRE' && n !== 'BGMI' && !n.includes('BATTLEGROUND');
+    });
+
+    if (validMatchCats.length === 0) {
+      await saveCategoryInSupabase({
+        id: 'cat-survivor',
+        name: 'SURVIVOR',
+        description: 'Survivor & Battle Royale matches',
+        isActive: true,
+        imageUrl: getCategoryBannerImage('SURVIVOR'),
+        bannerUrl: getCategoryBannerImage('SURVIVOR'),
+        sortOrder: 1,
+        displayOrder: 1,
+        order: 1
+      }, 1);
+
+      await saveCategoryInSupabase({
+        id: 'cat-arena',
+        name: 'ARENA',
+        description: 'Arena & TDM matches',
+        isActive: true,
+        imageUrl: getCategoryBannerImage('ARENA'),
+        bannerUrl: getCategoryBannerImage('ARENA'),
+        sortOrder: 2,
+        displayOrder: 2,
+        order: 2
+      }, 2);
+
+      await saveCategoryInSupabase({
+        id: 'cat-lone-wolf',
+        name: 'LONE WOLF',
+        description: '1v1 & 2v2 Lone Wolf combat matches',
+        isActive: true,
+        imageUrl: getCategoryBannerImage('LONE WOLF'),
+        bannerUrl: getCategoryBannerImage('LONE WOLF'),
+        sortOrder: 3,
+        displayOrder: 3,
+        order: 3
+      }, 3);
+    }
+  } catch (err: any) {
+    console.warn('[seedInitialFirestoreDataIfEmpty] Category seeding check:', err?.message || err);
+  }
 }
 
 export async function purgeDemoFirestoreData(): Promise<void> {
@@ -2675,10 +2981,26 @@ export async function createTournamentInSupabase(
   const tourWithId = { ...tournament, id };
   updateLocalTournamentCache(id, tourWithId);
 
-  const gameVal = tournament.game || tournament.category || 'BGMI';
+  const isGameBgmi = 
+    (tournament.game || '').toUpperCase() === 'BGMI' || 
+    (tournament.game || '').toUpperCase().includes('BATTLEGROUND') || 
+    (tournament.game || '').toUpperCase() === 'PUBG' ||
+    (tournament.title || '').toUpperCase().includes('BGMI') ||
+    (tournament.title || '').toUpperCase().includes('BATTLEGROUND') ||
+    (tournament.title || '').toUpperCase().includes('PUBG') ||
+    (tournament.category || '').toUpperCase() === 'BGMI' ||
+    (tournament.matchCategory || '').toUpperCase() === 'BGMI' ||
+    ((tournament as any).category_name || '').toUpperCase() === 'BGMI' ||
+    ((tournament as any).game_name || '').toUpperCase() === 'BGMI' ||
+    ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK', 'NUSA', 'KARAKIN'].includes((tournament.map || '').toUpperCase()) ||
+    (tournament.matchType || '').toUpperCase().includes('TDM') ||
+    (tournament.matchType || '').toUpperCase().includes('ULTIMATE ROYALE') ||
+    Number(tournament.maxParticipants || tournament.maxSlots) === 100;
+  const gameVal = isGameBgmi ? 'BGMI' : 'FREE FIRE';
+  const matchCatVal = tournament.matchCategory || tournament.category || 'SURVIVOR';
   const modeVal = tournament.matchType || 'Solo';
-  const mapVal = tournament.map || 'Erangel';
-  const maxVal = Number(tournament.maxParticipants || tournament.maxSlots || 100);
+  const mapVal = tournament.map || (isGameBgmi ? 'Erangel' : 'Bermuda');
+  const maxVal = Number(tournament.maxParticipants || tournament.maxSlots || (isGameBgmi ? 100 : 48));
   const joinedVal = Number(tournament.joinedParticipants || tournament.filledSlots || 0);
   const killVal = Number(tournament.perKillPrize || tournament.perKillReward || 0);
   const schedVal = tournament.matchSchedule || tournament.schedule || tournament.startTime || new Date().toISOString();
@@ -2689,7 +3011,7 @@ export async function createTournamentInSupabase(
   // Resolve clean image URL for banner and thumbnail (safe for mobile User App Image.network)
   let bannerImg = tournament.bannerUrl || (tournament as any).thumbnailUrl || (tournament as any).imageUrl;
   if (!bannerImg || typeof bannerImg !== 'string' || !bannerImg.trim() || bannerImg.trim() === 'N/A') {
-    bannerImg = getCategoryBannerImage(gameVal);
+    bannerImg = getCategoryBannerImage(matchCatVal) || getCategoryBannerImage(gameVal);
   } else {
     bannerImg = bannerImg.trim();
   }
@@ -2714,8 +3036,13 @@ export async function createTournamentInSupabase(
   const payload = cleanUndefined({
     id,
     title: (tournament.title || 'Untitled Tournament').toUpperCase(),
+    game: gameVal,
+    game_category: gameVal,
+    gameCategory: gameVal,
     category_id: tournament.categoryId || null,
-    category_name: gameVal,
+    category_name: matchCatVal,
+    match_category: matchCatVal,
+    category: matchCatVal,
     banner_url: bannerImg,
     thumbnail_url: bannerImg,
     image_url: bannerImg,
@@ -2770,15 +3097,9 @@ export async function createTournamentInSupabase(
           ? String((tournament as any).access_code).trim()
           : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
     ) : null,
-    winner_note: (
-      tournament.requireAccessCode ??
-      tournament.requiresAccessCode ??
-      tournament.requires_access_code ??
-      tournament.require_access_code ??
-      tournament.isPrivate ??
-      (tournament as any).is_private ??
-      false
-    ) ? JSON.stringify({
+    winner_note: JSON.stringify({
+      game: gameVal,
+      match_category: matchCatVal,
       access_code: (
         (tournament.accessCode && String(tournament.accessCode).trim().length > 0)
           ? String(tournament.accessCode).trim()
@@ -2786,8 +3107,16 @@ export async function createTournamentInSupabase(
             ? String((tournament as any).access_code).trim()
             : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
       ),
-      requires_access_code: true
-    }) : ((tournament as any).winner_note || (tournament as any).winnerNote || null),
+      requires_access_code: Boolean(
+        tournament.requireAccessCode ??
+        tournament.requiresAccessCode ??
+        tournament.requires_access_code ??
+        tournament.require_access_code ??
+        tournament.isPrivate ??
+        (tournament as any).is_private ??
+        false
+      )
+    }),
     rules: Array.isArray(tournament.rules) ? tournament.rules.join('\n') : String(tournament.rules || ''),
     description: `Compete in ${gameVal} and win instant wallet rewards!`,
     participants: Array.isArray(tournament.participants) ? tournament.participants : [],
@@ -2796,9 +3125,20 @@ export async function createTournamentInSupabase(
     updated_at: new Date().toISOString(),
   });
 
+  console.log('[DEBUG TRACE 3] tournamentToJson() / minJson() exact "game_category" JSON value:', payload.game_category);
+  console.log('[DEBUG TRACE 4] Supabase INSERT request sending "game_category":', payload.game_category);
+
   try {
     await ensureSupabaseAuthSession();
     await safeSupabaseWrite('tournaments', payload, 'upsert');
+
+    try {
+      const { data: dbCheck } = await supabase.from('tournaments').select('id, title, game, game_category').eq('id', id).single();
+      console.log('[DEBUG TRACE 5] Supabase response returned "game_category":', dbCheck?.game_category ?? dbCheck?.game ?? 'NULL');
+    } catch (checkErr) {
+      console.log('[DEBUG TRACE 5] Supabase response check notice:', checkErr);
+    }
+
     return id;
   } catch (err: any) {
     console.error('[DEBUG DB Create Match Error]', { recordId: id, error: err?.message || err });
@@ -2813,7 +3153,22 @@ export async function updateTournamentInSupabase(
 ): Promise<void> {
   const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
   
-  const gameVal = updates.game || updates.category;
+  const isGameBgmi = 
+    ((updates.game || '').toUpperCase() === 'BGMI') || 
+    ((updates.game || '').toUpperCase().includes('BATTLEGROUND')) || 
+    ((updates.game || '').toUpperCase() === 'PUBG') ||
+    ((updates.title || '').toUpperCase().includes('BGMI')) ||
+    ((updates.title || '').toUpperCase().includes('BATTLEGROUND')) ||
+    ((updates.title || '').toUpperCase().includes('PUBG')) ||
+    ((updates.category || '') as string).toUpperCase() === 'BGMI' ||
+    ((updates.matchCategory || '') as string).toUpperCase() === 'BGMI' ||
+    ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK', 'NUSA', 'KARAKIN'].includes(((updates.map || '') as string).toUpperCase()) ||
+    ((updates.matchType || '') as string).toUpperCase().includes('TDM') ||
+    ((updates.matchType || '') as string).toUpperCase().includes('ULTIMATE ROYALE') ||
+    Number(updates.maxParticipants || updates.maxSlots) === 100;
+
+  const gameVal = isGameBgmi ? 'BGMI' : (updates.game ? 'FREE FIRE' : undefined);
+  const matchCatVal = updates.matchCategory || updates.category;
   const modeVal = updates.matchType;
   const mapVal = updates.map;
   const maxVal = updates.maxParticipants !== undefined ? Number(updates.maxParticipants) : updates.maxSlots !== undefined ? Number(updates.maxSlots) : undefined;
@@ -2916,23 +3271,28 @@ export async function updateTournamentInSupabase(
   }
 
   let winnerNoteUpdate: string | null | undefined = undefined;
-  if (requiresAccessCodeUpdate !== undefined) {
-    if (requiresAccessCodeUpdate === false) {
-      winnerNoteUpdate = null;
-    } else if (requiresAccessCodeUpdate === true && accessCodeUpdate) {
-      winnerNoteUpdate = JSON.stringify({
-        access_code: accessCodeUpdate,
-        requires_access_code: true
-      });
-    }
+  const finalMetaGame = gameVal || updates.game;
+  const finalMetaCategory = matchCatVal || updates.matchCategory || updates.category;
+  if (finalMetaGame || finalMetaCategory || requiresAccessCodeUpdate !== undefined) {
+    winnerNoteUpdate = JSON.stringify({
+      game: finalMetaGame,
+      match_category: finalMetaCategory,
+      access_code: accessCodeUpdate || null,
+      requires_access_code: Boolean(requiresAccessCodeUpdate)
+    });
   } else if ((updates as any).winner_note !== undefined || (updates as any).winnerNote !== undefined) {
     winnerNoteUpdate = (updates as any).winner_note ?? (updates as any).winnerNote;
   }
 
   const payload: Record<string, any> = cleanUndefined({
     title: updates.title ? String(updates.title).toUpperCase() : undefined,
+    game: gameVal,
+    game_category: gameVal || updates.game || (updates as any).gameCategory || (updates as any).game_category,
+    gameCategory: gameVal || updates.game || (updates as any).gameCategory || (updates as any).game_category,
     category_id: updates.categoryId,
-    category_name: gameVal,
+    category_name: matchCatVal,
+    match_category: matchCatVal,
+    category: matchCatVal,
     banner_url: bannerImg,
     thumbnail_url: bannerImg,
     image_url: bannerImg,
@@ -2963,10 +3323,19 @@ export async function updateTournamentInSupabase(
     updated_at: new Date().toISOString(),
   });
 
+  console.log('[DEBUG TRACE 3] tournamentToJson() / minJson() exact "game_category" JSON value:', payload.game_category);
+  console.log('[DEBUG TRACE 4] Supabase UPDATE request sending "game_category":', payload.game_category);
 
   try {
     await ensureSupabaseAuthSession();
     await safeSupabaseWrite('tournaments', payload, 'update', id);
+
+    try {
+      const { data: dbCheck } = await supabase.from('tournaments').select('id, title, game, game_category').eq('id', id).single();
+      console.log('[DEBUG TRACE 5] Supabase response returned "game_category":', dbCheck?.game_category ?? dbCheck?.game ?? 'NULL');
+    } catch (checkErr) {
+      console.log('[DEBUG TRACE 5] Supabase response check notice:', checkErr);
+    }
   } catch (err: any) {
     console.error('[DEBUG DB Update Match Error]', { recordId: id, error: err?.message || err });
     throw err;
@@ -3151,15 +3520,6 @@ export async function updateUserProfileInSupabase(
         const remaining = formatRemaining(lastIgnChangeAt);
         if (remaining) {
           throw new Error(`In-Game Name (IGN) can only be changed once every 24 hours. Please wait ${remaining} before changing again.`);
-        }
-      }
-    }
-
-    if (newUid && currentUid && newUid !== currentUid) {
-      if (lastUidChangeAt) {
-        const remaining = formatRemaining(lastUidChangeAt);
-        if (remaining) {
-          throw new Error(`Game UID can only be changed once every 24 hours. Please wait ${remaining} before changing again.`);
         }
       }
     }
@@ -3523,21 +3883,33 @@ export async function createTransactionInSupabase(tx: WalletTransaction): Promis
 export async function saveCategoryInSupabase(category: MatchCategory, index?: number): Promise<void> {
   const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
   const id = (category.id && isUuid(category.id)) ? category.id : crypto.randomUUID();
+  const banner = category.bannerUrl || category.imageUrl || getCategoryBannerImage(category.name);
+  const image = category.imageUrl || category.bannerUrl || getCategoryBannerImage(category.name);
+  const orderVal = index !== undefined ? index : category.displayOrder ?? category.sortOrder ?? category.order ?? 0;
+
   const payload = cleanUndefined({
     id,
     name: category.name,
     description: category.description || null,
     is_active: category.isActive ?? true,
-    image_url: category.imageUrl || getCategoryBannerImage(category.name),
-    banner_url: category.bannerUrl || null,
-    display_order: index !== undefined ? index : category.displayOrder ?? category.sortOrder ?? category.order ?? 0,
+    image_url: image,
+    banner_url: banner,
+    display_order: orderVal,
+    sort_order: orderVal,
     created_at: category.createdAt || new Date().toISOString(),
   });
 
-  const { error } = await supabase.from('categories').upsert(payload);
-  if (error) {
-    handleSupabaseError(error, 'saveCategoryInSupabase');
-    throw error;
+  await safeSupabaseWrite('categories', payload, 'upsert');
+
+  // Also sync to app_config for client mobile apps and caches
+  try {
+    const { data: allCats } = await supabase.from('categories').select('*');
+    if (allCats && allCats.length > 0) {
+      await upsertAppConfig('categories', allCats, 'syncCategoriesConfig');
+      await upsertAppConfig('match_categories', allCats, 'syncMatchCategoriesConfig');
+    }
+  } catch (e) {
+    console.warn('[saveCategoryInSupabase] app_config sync warning:', e);
   }
 }
 
@@ -3854,7 +4226,17 @@ export async function saveSavedImageInSupabase(image: SavedImage): Promise<void>
   const id = image.id || `img_${Date.now()}`;
   const cleanImage = { ...image, id };
 
-  // 1. Save to localStorage cache immediately
+  // 1. Remove from deleted blacklist if previously deleted
+  try {
+    const delRaw = localStorage.getItem('winx7_deleted_image_ids');
+    if (delRaw) {
+      const deletedList: string[] = JSON.parse(delRaw);
+      const filtered = deletedList.filter((d) => d !== id && d !== `saved_image_${id}` && d !== id.replace('saved_image_', ''));
+      localStorage.setItem('winx7_deleted_image_ids', JSON.stringify(filtered));
+    }
+  } catch {}
+
+  // 2. Save to localStorage cache immediately
   try {
     const existingRaw = localStorage.getItem('winx7_saved_images');
     const existing: SavedImage[] = existingRaw ? JSON.parse(existingRaw) : [];
@@ -3869,29 +4251,60 @@ export async function saveSavedImageInSupabase(image: SavedImage): Promise<void>
     console.warn('[LocalStorage SavedImage] Cache warning:', err);
   }
 
-  // 2. Sync to Supabase app_config
+  // 3. Sync to Supabase app_config
   await upsertAppConfig(`saved_image_${id}`, cleanImage, 'saveSavedImageInSupabase');
 }
 
-export async function deleteSavedImageFromSupabase(imageId: string): Promise<void> {
+export async function deleteSavedImageFromSupabase(imageId: string, storagePathOrUrl?: string): Promise<void> {
   const rawId = imageId.replace('saved_image_', '');
+  const cleanId = `saved_image_${rawId}`;
 
-  // 1. Remove from localStorage cache
+  // 1. Record into deleted blacklist so it is never re-merged from dbImages or localStorage
+  try {
+    const deletedRaw = localStorage.getItem('winx7_deleted_image_ids');
+    const deletedList: string[] = deletedRaw ? JSON.parse(deletedRaw) : [];
+    const toAdd = [rawId, cleanId, imageId];
+    toAdd.forEach((idToAdd) => {
+      if (idToAdd && !deletedList.includes(idToAdd)) {
+        deletedList.push(idToAdd);
+      }
+    });
+    localStorage.setItem('winx7_deleted_image_ids', JSON.stringify(deletedList));
+  } catch (blackListErr) {
+    console.warn('[LocalStorage SavedImage] Blacklist warning:', blackListErr);
+  }
+
+  let fileUrlOrPath = storagePathOrUrl;
+
+  // 2. Remove from localStorage cache and locate file URL if not provided
   try {
     const existingRaw = localStorage.getItem('winx7_saved_images');
     if (existingRaw) {
       const existing: SavedImage[] = JSON.parse(existingRaw);
-      const filtered = existing.filter((img) => img.id !== rawId && img.id !== `saved_image_${rawId}`);
+      const matched = existing.find((img) => img.id === rawId || img.id === cleanId || img.id === imageId);
+      if (matched && !fileUrlOrPath) {
+        fileUrlOrPath = matched.storagePath || matched.url;
+      }
+      const filtered = existing.filter((img) => img.id !== rawId && img.id !== cleanId && img.id !== imageId);
       localStorage.setItem('winx7_saved_images', JSON.stringify(filtered));
     }
   } catch (err) {
     console.warn('[LocalStorage SavedImage] Delete warning:', err);
   }
 
-  // 2. Remove from Supabase app_config
+  // 3. Delete file from Supabase Storage
+  if (fileUrlOrPath) {
+    try {
+      await deleteFromStorage(fileUrlOrPath, 'match-cards');
+    } catch (storageErr) {
+      console.warn('[Supabase Storage] File delete notice:', storageErr);
+    }
+  }
+
+  // 4. Remove and mark deleted in Supabase app_config
   try {
-    const cleanId = imageId.startsWith('saved_image_') ? imageId : `saved_image_${imageId}`;
-    await supabase.from('app_config').delete().eq('id', cleanId);
+    await supabase.from('app_config').delete().in('id', [cleanId, rawId, imageId]);
+    await upsertAppConfig(cleanId, { id: cleanId, deleted: true, is_deleted: true }, 'markSavedImageDeleted');
   } catch (err) {
     console.warn('[Supabase Delete Saved Image] Notice:', err);
   }
@@ -5656,419 +6069,367 @@ export function subscribeToResultRequests(onUpdate: (requests: ResultRequest[]) 
   };
 }
 
-/* ==========================================================================
-   SUPPORT LIVE CHAT SUPPORT SERVICES (Supabase Backend + Realtime)
-   ========================================================================== */
+// =================================================================
+// SUPPORT WEB APP ACCESS CONFIGURATION: STAFF & CATEGORIES
+// =================================================================
 
-export function evaluateSupportLifecycle(conversations: SupportConversation[]): { updated: boolean; list: SupportConversation[] } {
-  let changed = false;
-  const now = new Date();
-
-  // Filter out expired conversations (active for 24+ hours are permanently deleted)
-  const nonExpired = conversations.filter((c) => {
-    if (c.status === 'active') {
-      const baseTimeStr = c.claimedAt || c.createdAt;
-      const baseTime = new Date(baseTimeStr).getTime();
-      const diffHours = (now.getTime() - baseTime) / (1000 * 60 * 60);
-      if (diffHours >= 24) {
-        changed = true;
-        // Permanently delete expired conversation/messages
-        return false;
-      }
-    }
-    return true;
-  });
-
-  const updatedList = nonExpired.map((c): SupportConversation => {
-    // 1. 15-Minute Rule: If status === 'waiting' and 15 mins have passed
-    if (c.status === 'waiting') {
-      const createdTime = new Date(c.createdAt).getTime();
-      const diffMins = (now.getTime() - createdTime) / (60 * 1000);
-      if (diffMins >= 15) {
-        changed = true;
-        const closedAt = now.toISOString();
-        const systemMsg: SupportMessage = {
-          id: `msg_sys_auto_close_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-          senderType: 'system',
-          senderId: 'system',
-          senderName: 'System',
-          message: 'CONVERSATION CLOSED - NO STAFF ATTENDED IN 15 MINUTES',
-          createdAt: closedAt
-        };
-        const systemAct: SupportActivity = {
-          id: `act_sys_auto_close_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-          type: 'resolve',
-          operatorId: 'system',
-          operatorName: 'System',
-          operatorRole: 'SYSTEM',
-          details: 'Conversation automatically closed due to no response in 15 minutes.',
-          timestamp: closedAt
-        };
-        return {
-          ...c,
-          status: 'closed',
-          messages: [...c.messages, systemMsg],
-          activityLog: [...c.activityLog, systemAct],
-          updatedAt: closedAt
-        };
-      }
-    }
-
-    return c;
-  });
-
-  return { updated: changed, list: updatedList };
-}
-
-/**
- * Verifies staff identity server-side from profiles table.
- * Never trust client-provided staff identity.
- */
-export async function getVerifiedStaffProfile(): Promise<{ id: string; name: string; role: string; email: string }> {
-  await ensureSupabaseAuthSession();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    throw new Error('Not authenticated with Supabase. Staff joining rejected.');
-  }
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('id, name, display_name, role, email, status')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error || !profile) {
-    throw new Error('Unauthorized: Staff profile not found in database.');
-  }
-
-  const role = String(profile.role || '').toUpperCase();
-  const status = String(profile.status || '').toUpperCase();
-
-  if (role !== 'ADMIN' && role !== 'SUPERADMIN' && role !== 'STAFF') {
-    throw new Error(`Unauthorized role (${role}) for support management.`);
-  }
-
-  if (status === 'SUSPENDED' || status === 'BLOCKED') {
-    throw new Error('Account is suspended.');
-  }
-
-  return {
-    id: profile.id,
-    name: profile.display_name || profile.name || 'Staff Member',
-    role,
-    email: profile.email || 'staff@winx7.gg'
-  };
-}
-
-/**
- * Fetch database-driven support categories from Supabase support_categories table.
- */
-export async function fetchSupportCategoriesFromSupabase(): Promise<SupportCategory[]> {
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   try {
-    const { data, error } = await supabase
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) {
+      headers['Authorization'] = `Bearer ${data.session.access_token}`;
+    }
+  } catch {}
+  return headers;
+}
+
+export async function fetchSupportStaffMembersFromSupabase(): Promise<SupportStaffMember[]> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/admin/support/staff', { headers });
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.success && Array.isArray(json.data)) {
+        return json.data;
+      }
+    }
+  } catch (err) {
+    console.warn('[fetchSupportStaffMembersFromSupabase API error]', err);
+  }
+
+  // Client-side direct fallback: Query public.support_staff
+  try {
+    const { data: staffRows, error } = await supabase
+      .from('support_staff')
+      .select('*');
+
+    if (!error && staffRows && staffRows.length > 0) {
+      const uIds = staffRows.map((r: any) => r.user_id);
+      const { data: profs } = await supabase.from('profiles').select('*').in('id', uIds);
+      const pMap = new Map((profs || []).map((p: any) => [p.id, p]));
+
+      return staffRows.map((r: any) => {
+        const p: any = pMap.get(r.user_id) || {};
+        const winxIgn = p.in_game_name || p.ff_ign || p.bgmi_ign || p.ign || '';
+        const winxUsername = p.username || '';
+        const winxName = p.name || p.username || winxIgn || (p.email ? p.email.split('@')[0] : 'Support Staff');
+        return {
+          id: r.id || `staff_${r.user_id}`,
+          userId: r.user_id,
+          name: winxName,
+          email: p.email || '',
+          username: winxUsername,
+          inGameName: winxIgn,
+          inGameId: p.in_game_id || p.ff_uid || p.bgmi_uid || '',
+          avatarUrl: p.avatar_url || '',
+          role: 'SUPPORT STAFF' as const,
+          status: (r.status || 'ACTIVE').toUpperCase() === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
+          assignedBy: r.assigned_by || null,
+          createdAt: r.assigned_at || r.created_at || new Date().toISOString(),
+          updatedAt: r.updated_at || new Date().toISOString()
+        };
+      });
+    }
+  } catch {}
+
+  // Fallback to app_config
+  try {
+    const { data: cfg } = await supabase.from('app_config').select('*').eq('id', 'support_staff_list').maybeSingle();
+    if (cfg) {
+      const raw = cfg.value || cfg.data;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+
+  return [];
+}
+
+export async function grantSupportStaffAccess(
+  userId: string,
+  name?: string,
+  email?: string
+): Promise<{ success: boolean; message: string; data?: SupportStaffMember; staff?: any }> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/admin/support/staff/grant', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ userId, name, email })
+    });
+    const json = await res.json().catch(() => ({ success: false, message: 'Invalid server response' }));
+    if (res.ok && json.success) {
+      return {
+        success: true,
+        message: json.message || 'Support Staff access granted.',
+        data: json.data || json.staff,
+        staff: json.staff
+      };
+    }
+    return {
+      success: false,
+      message: json.message || json.error || 'Unable to assign support staff'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Unable to assign support staff. Please try again.'
+    };
+  }
+}
+
+export async function updateSupportStaffStatusInSupabase(
+  userId: string,
+  status: 'ACTIVE' | 'DISABLED'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/admin/support/staff/update-status', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ userId, status })
+    });
+    const json = await res.json().catch(() => ({ success: false, message: 'Invalid server response' }));
+    if (res.ok && json.success) {
+      return { success: true, message: json.message || `Support access updated to ${status}.` };
+    }
+    return { success: false, message: json.message || json.error || 'Failed to update support status.' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network error updating status.' };
+  }
+}
+
+export async function removeSupportStaffRoleInSupabase(
+  userId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/admin/support/staff/remove', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ userId })
+    });
+    const json = await res.json().catch(() => ({ success: false, message: 'Invalid server response' }));
+    if (res.ok && json.success) {
+      return { success: true, message: json.message || 'Support staff role removed.' };
+    }
+    return { success: false, message: json.message || json.error || 'Failed to remove support role.' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network error removing support role.' };
+  }
+}
+
+export async function fetchSupportCategoriesFromSupabase(): Promise<SupportCategoryItem[]> {
+  // 1. Try backend API (server-side service role - fetches from support_categories ONLY)
+  try {
+    const res = await fetch('/api/admin/support/categories');
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.success && Array.isArray(json.data)) {
+        const cleaned = json.data.filter((c: any) => c && c.id && !c.id.startsWith('cat_'));
+        try {
+          localStorage.setItem('winx7_support_categories', JSON.stringify(cleaned));
+        } catch {}
+        return cleaned;
+      }
+    }
+  } catch (err) {
+    console.error('[fetchSupportCategoriesFromSupabase API error]', err);
+  }
+
+  // 2. Try support_categories dedicated table directly
+  try {
+    const { data: dbCats, error } = await supabase
       .from('support_categories')
       .select('*')
       .order('display_order', { ascending: true });
 
-    if (error) throw error;
-
-    if (!data || data.length === 0) {
-      // Seed default categories into the database table if empty
-      const defaults = [
-        { name: 'WITHDRAW / DEPOSIT', is_active: true, display_order: 0, description: 'Questions regarding deposit or withdrawal requests' },
-        { name: 'REFUND / RESULT', is_active: true, display_order: 1, description: 'Match refunds or result discrepancies' },
-        { name: 'TECHNICAL', is_active: true, display_order: 2, description: 'App crashes, account login, or general tech bugs' },
-        { name: 'OTHER', is_active: true, display_order: 3, description: 'Other general queries' }
-      ];
-      const { data: inserted, error: insertErr } = await supabase
-        .from('support_categories')
-        .insert(defaults)
-        .select('*');
-
-      if (insertErr) throw insertErr;
-
-      return (inserted || []).map(row => ({
-        id: row.id,
-        name: row.name,
-        isActive: row.is_active,
-        displayOrder: row.display_order,
-        description: row.description,
-        createdAt: row.created_at
+    if (error) {
+      console.error('[fetchSupportCategoriesFromSupabase DB error]', error.message || error);
+    } else if (dbCats && dbCats.length > 0) {
+      const mapped = dbCats.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description || '',
+        isActive: c.is_active !== undefined ? Boolean(c.is_active) : true,
+        displayOrder: c.display_order || 0,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at
       }));
+      const cleaned = mapped.filter((c: any) => !c.id.startsWith('cat_'));
+      try {
+        localStorage.setItem('winx7_support_categories', JSON.stringify(cleaned));
+      } catch {}
+      return cleaned;
     }
-
-    return data.map(row => ({
-      id: row.id,
-      name: row.name,
-      isActive: row.is_active,
-      displayOrder: row.display_order,
-      description: row.description,
-      createdAt: row.created_at
-    }));
-  } catch (err) {
-    console.warn('[Supabase] Error fetching support categories table:', err);
-    return [];
-  }
-}
-
-/**
- * Verifies admin or superadmin identity server-side from profiles table.
- * Does not check staff profile/staff_id or require staff status.
- */
-export async function getVerifiedAdminProfile(): Promise<{ id: string; role: string }> {
-  await ensureSupabaseAuthSession();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    throw new Error('Not authenticated with Supabase.');
+  } catch (err: any) {
+    console.error('[fetchSupportCategoriesFromSupabase DB Exception]', err?.message || err);
   }
 
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('id, role')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (error || !profile) {
-    throw new Error('Unauthorized: Profile not found in database.');
-  }
-
-  const role = String(profile.role || '').toUpperCase();
-  if (role !== 'ADMIN' && role !== 'SUPERADMIN') {
-    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
-  }
-
-  return { id: profile.id, role };
-}
-
-/**
- * Create a new support category.
- */
-export async function createSupportCategoryInSupabase(category: { name: string; isActive: boolean; displayOrder: number; description?: string }): Promise<SupportCategory> {
-  const verifiedAdmin = await getVerifiedAdminProfile();
-  if (verifiedAdmin.role !== 'ADMIN' && verifiedAdmin.role !== 'SUPERADMIN') {
-    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
-  }
-
-  const { data, error } = await supabase
-    .from('support_categories')
-    .insert({
-      name: category.name.toUpperCase(),
-      is_active: category.isActive,
-      display_order: category.displayOrder,
-      description: category.description
-    })
-    .select('*')
-    .single();
-
-  if (error) throw error;
-
-  return {
-    id: data.id,
-    name: data.name,
-    isActive: data.is_active,
-    displayOrder: data.display_order,
-    description: data.description,
-    createdAt: data.created_at
-  };
-}
-
-/**
- * Update an existing support category.
- */
-export async function updateSupportCategoryInSupabase(id: string, category: { name?: string; isActive?: boolean; displayOrder?: number; description?: string }): Promise<void> {
-  const verifiedAdmin = await getVerifiedAdminProfile();
-  if (verifiedAdmin.role !== 'ADMIN' && verifiedAdmin.role !== 'SUPERADMIN') {
-    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
-  }
-
-  const updatePayload: Record<string, any> = {};
-  if (category.name !== undefined) updatePayload.name = category.name.toUpperCase();
-  if (category.isActive !== undefined) updatePayload.is_active = category.isActive;
-  if (category.displayOrder !== undefined) updatePayload.display_order = category.displayOrder;
-  if (category.description !== undefined) updatePayload.description = category.description;
-
-  const { error } = await supabase
-    .from('support_categories')
-    .update(updatePayload)
-    .eq('id', id);
-
-  if (error) throw error;
-}
-
-/**
- * Delete a support category safely.
- */
-export async function deleteSupportCategoryFromSupabase(id: string): Promise<void> {
-  const verifiedAdmin = await getVerifiedAdminProfile();
-  if (verifiedAdmin.role !== 'ADMIN' && verifiedAdmin.role !== 'SUPERADMIN') {
-    throw new Error('Only Admins or Superadmins are authorized to manage support categories.');
-  }
-
-  const { error } = await supabase
-    .from('support_categories')
-    .delete()
-    .eq('id', id);
-
-  if (error) throw error;
-}
-
-/**
- * Fetch support conversations and their associated messages from database tables.
- */
-export async function fetchSupportConversationsFromSupabase(): Promise<SupportConversation[]> {
+  // 3. Try localStorage cache ONLY if it contains legitimate support_categories rows (no 'cat_')
   try {
-    const { data: convs, error: convsErr } = await supabase
-      .from('support_conversations')
-      .select('*')
-      .order('last_message_at', { ascending: false });
-
-    if (convsErr) throw convsErr;
-
-    const conversationsList: SupportConversation[] = [];
-
-    for (const row of (convs || [])) {
-      // Fetch messages for each conversation
-      const { data: msgs, error: msgsErr } = await supabase
-        .from('support_messages')
-        .select('*')
-        .eq('conversation_id', row.id)
-        .order('created_at', { ascending: true });
-
-      const messages: SupportMessage[] = (msgs || []).map(m => ({
-        id: m.id,
-        senderType: m.sender_type,
-        senderId: m.sender_id,
-        senderName: m.sender_name,
-        senderEmail: m.sender_email || undefined,
-        message: m.message,
-        createdAt: m.created_at
-      }));
-
-      conversationsList.push({
-        id: row.id,
-        userId: row.user_id,
-        username: row.username,
-        email: row.email || undefined,
-        ign: row.ign || undefined,
-        uid: row.uid || undefined,
-        category: row.category_name_snapshot || 'OTHER',
-        status: row.status as 'waiting' | 'active' | 'closed',
-        unreadCount: row.unread_count || 0,
-        assignedStaffId: row.assigned_staff_id,
-        assignedStaffName: row.assigned_staff_name,
-        assignedStaffEmail: row.assigned_staff_email,
-        claimedAt: row.claimed_at,
-        lastMessage: row.last_message || '',
-        lastMessageAt: row.last_message_at || row.updated_at || row.created_at,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        messages,
-        activityLog: []
-      });
+    const cached = localStorage.getItem('winx7_support_categories');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const cleaned = parsed.filter((c: any) => c && c.id && !c.id.startsWith('cat_'));
+        if (cleaned.length > 0) {
+          return cleaned;
+        }
+      }
     }
+  } catch {}
 
-    // Evaluate 15m/24h lifecycle rules if needed, but since we are real-time,
-    // we let server handle it or verify locally.
-    return conversationsList;
-  } catch (err) {
-    console.warn('[Supabase] Error fetching support conversations:', err);
-    return [];
-  }
+  return [];
 }
 
-/**
- * Claim/join a support conversation using Postgres RPC to verify identity.
- */
-export async function claimSupportRequestInSupabase(conversationId: string): Promise<void> {
-  const { error } = await supabase.rpc('claim_support_request', { p_conversation_id: conversationId });
-  if (error) {
-    throw new Error(error.message || 'Failed to claim support request');
-  }
-}
-
-/**
- * Resolve/close a support conversation using Postgres RPC.
- */
-export async function resolveSupportRequestInSupabase(conversationId: string): Promise<void> {
-  const { error } = await supabase.rpc('resolve_support_request', { p_conversation_id: conversationId });
-  if (error) {
-    throw new Error(error.message || 'Failed to resolve support request');
-  }
-}
-
-/**
- * Reopen a completed/closed support conversation using Postgres RPC.
- */
-export async function reopenSupportRequestInSupabase(conversationId: string): Promise<void> {
-  const { error } = await supabase.rpc('reopen_support_request', { p_conversation_id: conversationId });
-  if (error) {
-    throw new Error(error.message || 'Failed to reopen support request');
-  }
-}
-
-/**
- * Send a message and update metadata in database tables.
- */
-export async function sendSupportMessageToSupabase(
-  conversationId: string,
-  messageText: string,
-  senderType: 'user' | 'staff' | 'admin' | 'system'
-): Promise<void> {
-  const verifiedStaff = await getVerifiedStaffProfile();
-
-  const { error: msgErr } = await supabase
-    .from('support_messages')
-    .insert({
-      conversation_id: conversationId,
-      sender_id: verifiedStaff.id,
-      sender_name: verifiedStaff.name,
-      sender_type: senderType,
-      message: messageText
+export async function createSupportCategoryInSupabase(
+  payload: { name: string; description?: string; isActive?: boolean; displayOrder?: number }
+): Promise<{ success: boolean; message: string; data?: SupportCategoryItem }> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/admin/support/categories', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
     });
-
-  if (msgErr) throw msgErr;
-
-  // Also update metadata inside support_conversations
-  const { error: convErr } = await supabase
-    .from('support_conversations')
-    .update({
-      last_message: messageText,
-      last_message_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', conversationId);
-
-  if (convErr) throw convErr;
+    const json = await res.json();
+    if (res.ok && json.success) {
+      const existing = await fetchSupportCategoriesFromSupabase();
+      try {
+        localStorage.setItem('winx7_support_categories', JSON.stringify(existing));
+      } catch {}
+      return { success: true, message: json.message || 'Category created.', data: json.data };
+    }
+    return { success: false, message: json.error || 'Failed to create category.' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network error creating category.' };
+  }
 }
 
-/**
- * Realtime updates subscription on support_conversations and support_messages tables.
- */
-export function subscribeToSupportConversations(onUpdate: (conversations: SupportConversation[]) => void): () => void {
+export async function updateSupportCategoryInSupabase(
+  id: string,
+  payload: { name?: string; description?: string; isActive?: boolean; displayOrder?: number }
+): Promise<{ success: boolean; message: string; data?: SupportCategoryItem }> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`/api/admin/support/categories/${id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (res.ok && json.success) {
+      const existing = await fetchSupportCategoriesFromSupabase();
+      try {
+        localStorage.setItem('winx7_support_categories', JSON.stringify(existing));
+      } catch {}
+      return { success: true, message: json.message || 'Category updated.', data: json.data };
+    }
+    return { success: false, message: json.error || 'Failed to update category.' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network error updating category.' };
+  }
+}
+
+export async function deleteSupportCategoryInSupabase(
+  id: string
+): Promise<{ success: boolean; isReferenced?: boolean; message: string }> {
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`/api/admin/support/categories/${id}`, {
+      method: 'DELETE',
+      headers
+    });
+    const json = await res.json();
+    if (res.ok && json.success) {
+      const existing = await fetchSupportCategoriesFromSupabase();
+      try {
+        localStorage.setItem('winx7_support_categories', JSON.stringify(existing));
+      } catch {}
+      return { success: true, message: json.message || 'Category deleted successfully.' };
+    }
+    return {
+      success: false,
+      isReferenced: Boolean(json.isReferenced),
+      message: json.error || 'Failed to delete category.'
+    };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Network error deleting category.' };
+  }
+}
+
+export function subscribeToSupportCategories(onUpdate: (categories: SupportCategoryItem[]) => void): () => void {
   let isSubscribed = true;
 
   const loadData = async () => {
     if (!isSubscribed) return;
-    const list = await fetchSupportConversationsFromSupabase();
+    const cats = await fetchSupportCategoriesFromSupabase();
     if (isSubscribed) {
-      onUpdate(list);
+      onUpdate(cats);
     }
   };
 
   loadData();
 
-  // Setup Postgres changes listener on support tables
-  const channel = supabase.channel('winx7_support_realtime')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'support_conversations' }, () => loadData())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'support_messages' }, () => loadData())
+  const channel = supabase.channel('winx7_support_categories_sub')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'support_categories' }, () => {
+      loadData();
+    })
+    .on('broadcast', { event: 'SUPPORT_CATEGORIES_UPDATED' }, () => {
+      loadData();
+    })
     .subscribe();
-
-  const intervalId = setInterval(loadData, 5000); // fallback polling
 
   return () => {
     isSubscribed = false;
-    clearInterval(intervalId);
-    supabase.removeChannel(channel);
+    try {
+      supabase.removeChannel(channel);
+    } catch {}
   };
 }
+
+export function subscribeToInbox(onUpdate: (payload: any) => void): () => void {
+  const channel = supabase.channel('winx7_support_inbox_global')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'support_conversations'
+    }, (payload) => {
+      onUpdate(payload);
+    })
+    .subscribe();
+
+  return () => {
+    try {
+      supabase.removeChannel(channel);
+    } catch {}
+  };
+}
+
+export function subscribeToConversation(
+  conversationId: string,
+  onUpdate: (payload: any) => void
+): () => void {
+  if (!conversationId) return () => {};
+  
+  const channel = supabase.channel(`winx7_support_conv_${conversationId}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'support_messages',
+      filter: `conversation_id=eq.${conversationId}`
+    }, (payload) => {
+      onUpdate(payload);
+    })
+    .subscribe();
+
+  return () => {
+    try {
+      supabase.removeChannel(channel);
+    } catch {}
+  };
+}
+
 

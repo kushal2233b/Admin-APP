@@ -60,8 +60,16 @@ export interface AppUser {
   displayName?: string;
   email: string;
   phone: string;
-  inGameId: string;
   inGameName: string;
+  inGameId?: string;
+  ff_uid?: string;
+  ff_ign?: string;
+  ffUid?: string;
+  ffIgn?: string;
+  bgmi_uid?: string;
+  bgmi_ign?: string;
+  bgmiUid?: string;
+  bgmiIgn?: string;
   walletBalance: number;
   depositBalance?: number;
   unclaimedWinnings: number;
@@ -123,8 +131,8 @@ export type MapType = string;
 export interface Participant {
   userId: string;
   username: string;
-  inGameId: string;
   inGameName: string;
+  inGameId?: string;
   slotNumber: number;
   kills?: number;
   rank?: number;
@@ -151,6 +159,11 @@ export interface SavedImage {
   name: string;
   url: string;
   storagePath?: string;
+  game?: string;
+  fileSize?: number;
+  width?: number;
+  height?: number;
+  compressionStats?: string;
   createdAt: string;
   createdBy?: string;
 }
@@ -159,8 +172,12 @@ export interface Tournament {
   id: string;
   title: string;
   game: GameCategory;
+  gameCategory?: string;
+  game_category?: string;
   categoryId?: string;
   category?: string;
+  matchCategory?: string;
+  match_category?: string;
   bannerUrl: string;
   thumbnailUrl?: string;
   imageUrl?: string;
@@ -508,54 +525,28 @@ export interface MatchRulesPreset {
   createdAt: string;
 }
 
-export interface SupportMessage {
-  id: string;
-  senderType: 'user' | 'staff' | 'admin' | 'system';
-  senderId: string;
-  senderName: string;
-  senderEmail?: string;
-  message: string;
-  createdAt: string;
-}
-
-export interface SupportActivity {
-  id: string;
-  type: 'join' | 'transfer' | 'resolve' | 'reopen' | 'message' | 'assign' | 'unassign';
-  operatorId: string;
-  operatorName: string;
-  operatorRole: string;
-  details: string;
-  timestamp: string;
-}
-
-export interface SupportConversation {
+export interface SupportStaffMember {
   id: string;
   userId: string;
-  username: string;
+  name: string;
   email?: string;
-  ign?: string;
-  uid?: string;
-  category: string;
-  status: 'waiting' | 'active' | 'closed';
-  unreadCount: number;
-  assignedStaffId: string | null;
-  assignedStaffName: string | null;
-  assignedStaffEmail?: string | null;
-  claimedAt?: string | null;
-  lastMessage: string;
-  lastMessageAt: string;
+  username?: string;
+  inGameName?: string;
+  inGameId?: string;
+  avatarUrl?: string;
+  role: 'SUPPORT STAFF';
+  status: 'ACTIVE' | 'DISABLED';
   createdAt: string;
   updatedAt: string;
-  messages: SupportMessage[];
-  activityLog: SupportActivity[];
 }
 
-export interface SupportCategory {
+export interface SupportCategoryItem {
   id: string;
   name: string;
-  isActive: boolean;
-  displayOrder: number;
   description?: string;
-  createdAt: string;
+  isActive: boolean;
+  displayOrder?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 

@@ -1,5 +1,11 @@
 // High-Quality Category & Tournament Banner Imagery with Guaranteed SVG Fallbacks
 export const CATEGORY_BANNER_IMAGES: Record<string, string> = {
+  // Match Categories
+  'SURVIVOR': 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80',
+  'ARENA': 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=800&q=80',
+  'LONE WOLF': 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=800&q=80',
+  'TDM': 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=800&q=80',
+
   // Free Fire / Free Fire Max
   'FREE FIRE': 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80',
   'FREE FIRE MAX': 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80',

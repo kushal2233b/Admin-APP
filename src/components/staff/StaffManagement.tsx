@@ -135,10 +135,9 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
         const staffIdMatch = (member.staffId || member.staff_id || member.id || '').toLowerCase().includes(query);
         const emailMatch = (member.email || '').toLowerCase().includes(query);
         const phoneMatch = (member.phone || '').toLowerCase().includes(query);
-        const ffUidMatch = (member.ffUid || member.ff_uid || member.inGameId || '').toLowerCase().includes(query);
         const ffIgnMatch = (member.ffIgn || member.ff_ign || member.inGameName || '').toLowerCase().includes(query);
 
-        return nameMatch || staffIdMatch || emailMatch || phoneMatch || ffUidMatch || ffIgnMatch;
+        return nameMatch || staffIdMatch || emailMatch || phoneMatch || ffIgnMatch;
       }
 
       return true;
@@ -155,10 +154,9 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
       const nameMatch = (u.username || '').toLowerCase().includes(q) || (u.displayName || '').toLowerCase().includes(q);
       const emailMatch = (u.email || '').toLowerCase().includes(q);
       const phoneMatch = (u.phone || '').toLowerCase().includes(q);
-      const ffUidMatch = (u.inGameId || '').toLowerCase().includes(q);
       const ffIgnMatch = (u.inGameName || '').toLowerCase().includes(q);
       const idMatch = (u.id || '').toLowerCase().includes(q) || (u.uid || '').toLowerCase().includes(q);
-      return nameMatch || emailMatch || phoneMatch || ffUidMatch || ffIgnMatch || idMatch;
+      return nameMatch || emailMatch || phoneMatch || ffIgnMatch || idMatch;
     }).slice(0, 20);
   }, [users, userSearchQuery]);
 
@@ -616,7 +614,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                 <tr>
                   <th className="px-4 py-3.5">Staff Name & ID</th>
                   <th className="px-4 py-3.5">Contact Info</th>
-                  <th className="px-4 py-3.5">FF UID / IGN</th>
+                  <th className="px-4 py-3.5">In-Game Name (IGN)</th>
                   <th className="px-4 py-3.5">Role</th>
                   <th className="px-4 py-3.5">Status</th>
                   <th className="px-4 py-3.5">Joined Date</th>
@@ -668,17 +666,12 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                         </div>
                       </td>
 
-                      {/* FF IGN & UID */}
+                      {/* In-Game Name (IGN) */}
                       <td className="px-4 py-3.5">
-                        <div className="space-y-0.5">
-                          <p className="font-bold text-[#F5F5F5] flex items-center gap-1.5 truncate">
-                            <Gamepad2 className="w-3.5 h-3.5 text-[#C9A34E] flex-shrink-0" />
-                            <span className="truncate">{staff.ffIgn || staff.ff_ign || staff.inGameName || 'No IGN'}</span>
-                          </p>
-                          <p className="font-mono text-[11px] text-[#777278]">
-                            UID: {staff.ffUid || staff.ff_uid || staff.inGameId || 'N/A'}
-                          </p>
-                        </div>
+                        <p className="font-bold text-[#F5F5F5] flex items-center gap-1.5 truncate">
+                          <Gamepad2 className="w-3.5 h-3.5 text-[#C9A34E] flex-shrink-0" />
+                          <span className="truncate">{staff.ffIgn || staff.ff_ign || staff.inGameName || 'No IGN'}</span>
+                        </p>
                       </td>
 
                       {/* Role */}
@@ -841,16 +834,10 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                         {staff.phone || 'N/A'}
                       </span>
                     </div>
-                    <div>
-                      <span className="text-[10px] text-[#777278] block font-semibold">FF IGN</span>
+                    <div className="col-span-2">
+                      <span className="text-[10px] text-[#777278] block font-semibold">In-Game Name (IGN)</span>
                       <span className="text-[#F5F5F5] font-bold truncate block text-[11px]">
                         {staff.ffIgn || staff.ff_ign || staff.inGameName || 'N/A'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-[#777278] block font-semibold">FF UID</span>
-                      <span className="text-[#B0ACB0] font-mono truncate block text-[11px]">
-                        {staff.ffUid || staff.ff_uid || staff.inGameId || 'N/A'}
                       </span>
                     </div>
                   </div>
@@ -987,7 +974,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                   <input
                     id="user-search-modal-input"
                     type="text"
-                    placeholder="Search by username, email, phone, FF UID, FF IGN..."
+                    placeholder="Search by username, email, phone, In-Game IGN..."
                     value={userSearchQuery}
                     onChange={(e) => setUserSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2.5 bg-[#0D0B0D] border border-[#29252A]/60 rounded-xl text-xs text-white placeholder-purple-400/60 focus:outline-none focus:border-[#C9A34E]"
@@ -1040,7 +1027,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                                 </span>
                               </div>
                               <p className="text-[11px] text-[#B0ACB0]/80 truncate">
-                                IGN: <strong className="text-[#F5F5F5]">{user.inGameName || 'N/A'}</strong> • UID: {user.inGameId || 'N/A'}
+                                IGN: <strong className="text-[#F5F5F5]">{user.inGameName || 'N/A'}</strong>
                               </p>
                               <p className="text-[10px] text-[#777278]/80 truncate">
                                 {user.email || user.phone || 'No contact info'}
@@ -1096,7 +1083,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                         {selectedUserForStaff.username || selectedUserForStaff.displayName}
                       </h4>
                       <p className="text-xs text-[#B0ACB0]">
-                        FF IGN: <strong className="text-[#C9A34E]">{selectedUserForStaff.inGameName || 'N/A'}</strong> • FF UID: {selectedUserForStaff.inGameId || 'N/A'}
+                        In-Game IGN: <strong className="text-[#C9A34E]">{selectedUserForStaff.inGameName || 'N/A'}</strong>
                       </p>
                       <p className="text-[11px] text-[#777278] truncate">
                         {selectedUserForStaff.email || selectedUserForStaff.phone}
@@ -1242,15 +1229,9 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                   <span className="text-[#B0ACB0]">{selectedStaffDetails.phone || 'N/A'}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-[#777278] block font-semibold">FF IGN</span>
+                  <span className="text-[10px] text-[#777278] block font-semibold">In-Game Name (IGN)</span>
                   <span className="font-bold text-[#F5F5F5]">
                     {selectedStaffDetails.ffIgn || selectedStaffDetails.ff_ign || selectedStaffDetails.inGameName || 'N/A'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-[#777278] block font-semibold">FF UID</span>
-                  <span className="font-mono text-[#B0ACB0]">
-                    {selectedStaffDetails.ffUid || selectedStaffDetails.ff_uid || selectedStaffDetails.inGameId || 'N/A'}
                   </span>
                 </div>
                 <div>

@@ -84,8 +84,8 @@ export const Header: React.FC<HeaderProps> = ({
       case 'result-requests': return 'Result Requests Verification';
       case 'wallet': return 'Wallet & Payments';
       case 'banners': return 'Match Thumbnails';
-      case 'support': return 'Support Desk';
       case 'reports': return 'Analytics & Reports';
+      case 'support-management': return 'Support Management';
       case 'staff': return 'Staff Management';
       case 'settings': return 'System Settings';
       default: return 'WinX7 Admin';

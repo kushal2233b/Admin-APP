@@ -173,7 +173,7 @@ export const DepositsView: React.FC<DepositsViewProps> = ({
                         <span className="text-xs text-[#B0ACB0] font-normal ml-1">({userDisplay.inGameName})</span>
                       ) : null}
                     </h3>
-                    <span className="text-[10px] text-[#777278] font-mono">UID: {userDisplay.userId !== 'N/A' ? userDisplay.userId : tx.userId}</span>
+                    <span className="text-[10px] text-[#777278] font-mono">User ID: {userDisplay.userId !== 'N/A' ? userDisplay.userId : tx.userId}</span>
                     <span
                       className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
                         tx.status === 'pending'
@@ -214,9 +214,6 @@ export const DepositsView: React.FC<DepositsViewProps> = ({
                   )}
 
                   <div className="flex items-center gap-3 text-[10px] mt-1.5 text-[#B0ACB0]/80 flex-wrap">
-                    {(userDisplay.inGameId && userDisplay.inGameId !== 'N/A') && (
-                      <span>Game UID: <strong className="text-[#C9A34E] font-mono">{userDisplay.inGameId}</strong></span>
-                    )}
                     {(userDisplay.email && userDisplay.email !== 'N/A') && (
                       <span>Email: <strong className="text-[#B0ACB0]">{userDisplay.email}</strong></span>
                     )}

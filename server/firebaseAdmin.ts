@@ -5,17 +5,20 @@ import { createClient } from '@supabase/supabase-js';
 
 // Supabase fallback client for backend token queries
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://phuduaampsjenkreufmz.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_Y6DY8s-Cph3gIbEMRqWNLg_fodyJPrj';
 
 let backendSupabase: any = null;
 export function getBackendSupabase() {
-  if (!backendSupabase && SUPABASE_URL && SUPABASE_KEY) {
-    try {
-      backendSupabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-        auth: { persistSession: false }
-      });
-    } catch (e) {
-      console.warn('[Backend Supabase Init Notice]:', e);
+  if (!backendSupabase) {
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'sb_publishable_Y6DY8s-Cph3gIbEMRqWNLg_fodyJPrj';
+    if (SUPABASE_URL && key) {
+      try {
+        backendSupabase = createClient(SUPABASE_URL, key, {
+          auth: { persistSession: false }
+        });
+        console.log(`[Backend Supabase] Initialized with key type: ${process.env.SUPABASE_SERVICE_ROLE_KEY ? 'service_role' : 'anon'}`);
+      } catch (e) {
+        console.warn('[Backend Supabase Init Notice]:', e);
+      }
     }
   }
   return backendSupabase;

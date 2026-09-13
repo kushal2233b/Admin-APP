@@ -16,7 +16,41 @@ export const initialUsers: AppUser[] = [];
 
 export const initialTournaments: Tournament[] = [];
 
-export const initialCategories: MatchCategory[] = [];
+export const initialCategories: MatchCategory[] = [
+  {
+    id: 'cat-survivor',
+    name: 'SURVIVOR',
+    description: 'Survivor & Battle Royale matches',
+    isActive: true,
+    imageUrl: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80',
+    bannerUrl: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80',
+    sortOrder: 1,
+    displayOrder: 1,
+    order: 1
+  },
+  {
+    id: 'cat-arena',
+    name: 'ARENA',
+    description: 'Arena & TDM matches',
+    isActive: true,
+    imageUrl: 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=800&q=80',
+    bannerUrl: 'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?auto=format&fit=crop&w=800&q=80',
+    sortOrder: 2,
+    displayOrder: 2,
+    order: 2
+  },
+  {
+    id: 'cat-lone-wolf',
+    name: 'LONE WOLF',
+    description: '1v1 & 2v2 Lone Wolf combat matches',
+    isActive: true,
+    imageUrl: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=800&q=80',
+    bannerUrl: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=800&q=80',
+    sortOrder: 3,
+    displayOrder: 3,
+    order: 3
+  }
+];
 
 export const initialTransactions: WalletTransaction[] = [];
 

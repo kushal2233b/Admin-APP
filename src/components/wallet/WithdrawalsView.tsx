@@ -151,7 +151,7 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
                         <span className="text-xs text-[#B0ACB0] font-normal ml-1">({userDisplay.inGameName})</span>
                       ) : null}
                     </h3>
-                    <span className="text-[10px] text-[#777278] font-mono">UID: {userDisplay.userId !== 'N/A' ? userDisplay.userId : tx.userId}</span>
+                    <span className="text-[10px] text-[#777278] font-mono">User ID: {userDisplay.userId !== 'N/A' ? userDisplay.userId : tx.userId}</span>
                     <span
                       className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
                         tx.status === 'pending'

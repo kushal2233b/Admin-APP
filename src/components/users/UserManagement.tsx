@@ -41,7 +41,7 @@ interface UserManagementProps {
   onUpdateUserStatus: (userId: string, newStatus: UserStatus, reason?: string) => void;
   onUpdateUserWallet: (userId: string, amount: number, isAddition: boolean, note: string, walletType?: 'main' | 'winning') => Promise<void>;
   onDeleteUser: (userId: string) => void;
-  onEditUser: (userId: string, profileData: { username: string; email: string; phone: string; inGameName: string; inGameId: string; avatar_id?: string; avatarId?: string; avatarUrl?: string }) => void;
+  onEditUser: (userId: string, profileData: { username: string; email: string; phone: string; inGameName: string; inGameId?: string; avatar_id?: string; avatarId?: string; avatarUrl?: string }) => void;
 }
 
 export const UserManagement: React.FC<UserManagementProps> = ({
@@ -85,7 +85,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editInGameName, setEditInGameName] = useState('');
-  const [editInGameId, setEditInGameId] = useState('');
   const [editAvatarId, setEditAvatarId] = useState('avatar_1');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
 
@@ -103,14 +102,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       const username = (u.username || '').toLowerCase();
       const email = (u.email || '').toLowerCase();
       const phone = u.phone || '';
-      const inGameId = u.inGameId || '';
       const inGameName = (u.inGameName || '').toLowerCase();
 
       const matchesSearch = !q ||
         username.includes(q) ||
         email.includes(q) ||
         phone.includes(q) ||
-        inGameId.toLowerCase().includes(q) ||
         inGameName.includes(q);
 
       const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
@@ -158,7 +155,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         email: editEmail,
         phone: editPhone,
         inGameName: editInGameName,
-        inGameId: editInGameId,
         avatar_id: editAvatarId,
         avatarId: editAvatarId,
         avatarUrl: editAvatarUrl
@@ -246,7 +242,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 <th className="px-4 py-3">Player Name</th>
                 <th className="px-4 py-3">Phone</th>
                 <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">UID / IGN</th>
+                <th className="px-4 py-3">In-Game Name (IGN)</th>
                 <th className="px-4 py-3">Balances (Main / Winning)</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -288,13 +284,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       {user.email ? user.email : <span className="text-[#E21B36]">N/A</span>}
                     </td>
 
-                    {/* UID */}
+                    {/* In-Game Name (IGN) */}
                     <td className="px-4 py-3">
-                      <div className="font-mono text-[#C9A34E] font-bold">
-                        {user.inGameId ? user.inGameId : <span className="text-[#E21B36] font-normal">N/A</span>}
-                      </div>
-                      <div className="text-[10px] text-[#777278]">
-                        {user.inGameName ? user.inGameName : <span className="text-[#E21B36] font-normal">N/A</span>}
+                      <div className="font-extrabold text-[#C9A34E] text-xs">
+                        {user.inGameName ? user.inGameName : <span className="text-[#777278] font-normal">Not Set</span>}
                       </div>
                     </td>
 
@@ -344,7 +337,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             setEditEmail(user.email || '');
                             setEditPhone(user.phone || '');
                             setEditInGameName(user.inGameName || '');
-                            setEditInGameId(user.inGameId || '');
                             setEditAvatarId(curAvatarId);
                             setEditAvatarUrl(resolvePresetAvatarUrl(curAvatarId, user.avatarUrl));
                             setShowEditModal(true);
@@ -455,7 +447,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     setEditEmail(selectedUser.email || '');
                     setEditPhone(selectedUser.phone || '');
                     setEditInGameName(selectedUser.inGameName || '');
-                    setEditInGameId(selectedUser.inGameId || '');
                     setShowEditModal(true);
                   }}
                   className="px-3 py-1.5 rounded-xl bg-[#141215]/60 hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] text-xs font-bold transition flex items-center gap-1.5"
@@ -512,23 +503,17 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <div className="space-y-4">
                 {/* Gaming Profile Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A]">
-                    <p className="text-[10px] text-[#777278] uppercase font-bold">In-Game Name</p>
-                    <p className="text-sm font-black text-[#C9A34E] mt-0.5">
-                      {selectedUser.inGameName ? selectedUser.inGameName : <span className="text-[#E21B36] font-normal">N/A</span>}
-                    </p>
-                  </div>
-                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A]">
-                    <p className="text-[10px] text-[#777278] uppercase font-bold">In-Game ID</p>
-                    <p className="text-sm font-black text-[#F5F5F5] mt-0.5">
-                      {selectedUser.inGameId ? selectedUser.inGameId : <span className="text-[#E21B36] font-normal">N/A</span>}
-                    </p>
-                  </div>
                   <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A] col-span-2 sm:col-span-1">
+                    <p className="text-[10px] text-[#777278] uppercase font-bold">In-Game Name (IGN)</p>
+                    <p className="text-sm font-black text-[#C9A34E] mt-0.5">
+                      {selectedUser.inGameName ? selectedUser.inGameName : <span className="text-[#777278] font-normal">Not Set</span>}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A]">
                     <p className="text-[10px] text-[#777278] uppercase font-bold">Main Wallet</p>
                     <p className="text-sm font-black text-[#C9A34E] mt-0.5">₹{selectedUser.walletBalance}</p>
                   </div>
-                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A] col-span-2 sm:col-span-1">
+                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A]">
                     <p className="text-[10px] text-[#777278] uppercase font-bold">Winning Balance</p>
                     <p className="text-sm font-black text-[#C9A34E] mt-0.5">₹{selectedUser.unclaimedWinnings}</p>
                   </div>
@@ -583,17 +568,42 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 {userMatches.length === 0 ? (
                   <p className="text-xs text-[#777278] text-center py-6">No tournament matches played yet.</p>
                 ) : (
-                  userMatches.map((m) => (
-                    <div key={m.id} className="p-3 rounded-xl bg-[#141215] border border-[#29252A] text-xs flex justify-between items-center">
-                      <div>
-                        <p className="font-bold text-white">{m.title}</p>
-                        <p className="text-[10px] text-[#B0ACB0]">{m.game} • {m.matchType} • Entry: ₹{m.entryFee}</p>
+                  userMatches.map((m) => {
+                    const isBgmiMatch = 
+                      (m.game || '').toUpperCase() === 'BGMI' || 
+                      (m.game || '').toUpperCase().includes('BATTLEGROUND') || 
+                      (m.game || '').toUpperCase() === 'PUBG' ||
+                      (m.title || '').toUpperCase().includes('BGMI') ||
+                      (m.title || '').toUpperCase().includes('BATTLEGROUND') ||
+                      (m.title || '').toUpperCase().includes('PUBG') ||
+                      (m.category || '').toUpperCase() === 'BGMI' ||
+                      (m.matchCategory || '').toUpperCase() === 'BGMI' ||
+                      ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK', 'NUSA', 'KARAKIN'].includes((m.map || '').toUpperCase()) ||
+                      (m.matchType || '').toUpperCase().includes('TDM') ||
+                      (m.matchType || '').toUpperCase().includes('ULTIMATE ROYALE') ||
+                      Number(m.maxSlots) === 100;
+                    const gameBadge = isBgmiMatch ? 'BGMI' : (m.game || 'FREE FIRE');
+
+                    return (
+                      <div key={m.id} className="p-3 rounded-xl bg-[#141215] border border-[#29252A] text-xs flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-white">{m.title}</p>
+                          <p className="text-[10px] text-[#B0ACB0]">
+                            <span className={`font-black ${isBgmiMatch ? 'text-emerald-400' : 'text-[#FF3048]'}`}>
+                              {gameBadge}
+                            </span>
+                            {' • '}
+                            <span className="text-white font-bold">{m.matchType || 'Solo'}</span>
+                            {' • '}
+                            <span>Entry: ₹{m.entryFee}</span>
+                          </p>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#141215] text-[#C9A34E]">
+                          {m.status}
+                        </span>
                       </div>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#141215] text-[#C9A34E]">
-                        {m.status}
-                      </span>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}
@@ -858,7 +868,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* In-Game Name (IGN) */}
-              <div>
+              <div className="sm:col-span-2">
                 <label className="block text-[10px] uppercase font-black tracking-wider text-[#B0ACB0] mb-1">
                   In-Game Name (IGN)
                 </label>
@@ -871,24 +881,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     onChange={(e) => setEditInGameName(e.target.value)}
                     placeholder="e.g. VIPER•SNIPER"
                     className="w-full bg-[#141215] text-white text-xs pl-10 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* In-Game ID (UID) */}
-              <div>
-                <label className="block text-[10px] uppercase font-black tracking-wider text-[#B0ACB0] mb-1">
-                  In-Game ID (UID)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-[#777278] text-xs font-bold font-mono">ID</span>
-                  <input
-                    type="text"
-                    required
-                    value={editInGameId}
-                    onChange={(e) => setEditInGameId(e.target.value)}
-                    placeholder="e.g. 5489623101"
-                    className="w-full bg-[#141215] text-white text-xs pl-10 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-mono"
                   />
                 </div>
               </div>

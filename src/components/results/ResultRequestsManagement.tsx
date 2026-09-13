@@ -660,7 +660,6 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                       <tr>
                         <th className="p-2.5">Rank</th>
                         <th className="p-2.5">Player / Username</th>
-                        <th className="p-2.5">Game UID</th>
                         <th className="p-2.5">In-game IGN</th>
                         <th className="p-2.5 text-center">Kills</th>
                         <th className="p-2.5 text-right">Prize Won (₹)</th>
@@ -692,9 +691,6 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                             </td>
                             <td className="p-2.5 font-semibold text-[#F5F5F5]">
                               {p.username || p.displayName || 'Player'}
-                            </td>
-                            <td className="p-2.5 font-mono text-[#777278]">
-                              {p.inGameId || p.gameUid || 'N/A'}
                             </td>
                             <td className="p-2.5 font-extrabold text-[#C9A34E]">
                               {p.inGameName || p.gameIgn || 'N/A'}

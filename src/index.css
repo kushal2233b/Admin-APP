@@ -302,3 +302,13 @@ input:focus, textarea:focus, select:focus {
 .placeholder-purple-400\/40::placeholder, .placeholder-purple-400\/60::placeholder {
   color: var(--muted-text) !important;
 }
+
+/* ==========================================================================
+   MATCH THUMBNAIL 1.92:1 ASPECT RATIO
+   ========================================================================== */
+.aspect-\[1\.92\/1\],
+.aspect-match-thumbnail,
+.aspect-192 {
+  aspect-ratio: 1.92 / 1 !important;
+}
+

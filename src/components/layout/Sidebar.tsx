@@ -15,8 +15,8 @@ import {
   X,
   ShieldCheck,
   Gamepad2,
-  Headphones,
-  UserCheck
+  UserCheck,
+  Headphones
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -53,8 +53,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'wallet', label: 'Wallet', icon: Wallet },
     { id: 'notifications', label: 'Custom Notifications', icon: Bell },
     { id: 'coupons', label: 'Coupons', icon: Ticket },
+    { id: 'support-management', label: 'Support Management', icon: Headphones },
     { id: 'settings', label: 'Settings', icon: Settings },
-    { id: 'support', label: 'Support Desk', icon: Headphones },
     { id: 'staff', label: 'Staff Management', icon: UserCheck, superadminOnly: true }
   ];
 

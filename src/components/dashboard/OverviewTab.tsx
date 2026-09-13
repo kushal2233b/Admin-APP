@@ -84,9 +84,20 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const recentRegistrations = safeTournaments.flatMap((t) =>
     t ? (t.participants || []).map((p) => {
       const { email, inGameId, inGameName, username } = resolveUserDisplayName(p, safeUsers);
+      const isBgmiMatch = 
+        (t.game || '').toUpperCase() === 'BGMI' || 
+        (t.game || '').toUpperCase().includes('BATTLEGROUND') || 
+        (t.game || '').toUpperCase() === 'PUBG' ||
+        (t.title || '').toUpperCase().includes('BGMI') ||
+        (t.title || '').toUpperCase().includes('BATTLEGROUND') ||
+        (t.title || '').toUpperCase().includes('PUBG') ||
+        (t.category || '').toUpperCase() === 'BGMI' ||
+        ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK', 'NUSA', 'KARAKIN'].includes((t.map || '').toUpperCase()) ||
+        (t.matchType || '').toUpperCase().includes('TDM') ||
+        Number(t.maxSlots) === 100;
       return {
         tournamentTitle: t.title || 'Untitled Match',
-        game: t.game || 'Free Fire',
+        game: isBgmiMatch ? 'BGMI' : (t.game || 'Free Fire'),
         entryFee: t.entryFee || 0,
         username,
         inGameName: inGameName !== 'N/A' ? inGameName : username,

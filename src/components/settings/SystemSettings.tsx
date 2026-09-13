@@ -17,6 +17,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { checkFcmBackendStatus } from '../../services/notificationSenderService';
+import { SupportManagement } from '../support/SupportManagement';
+import { Headphones } from 'lucide-react';
 
 interface SystemSettingsProps {
   settings: SystemSettingsType;
@@ -170,6 +172,8 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
     }
   };
 
+  const [settingsSection, setSettingsSection] = useState<'policies' | 'support'>('policies');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -190,36 +194,69 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in pb-16 md:pb-6 max-w-6xl mx-auto">
-      {/* Top Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#141215] border border-[#29252A] shadow-xl">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-[#1B181C] border border-[#C9A34E]/30 flex items-center justify-center text-[#C9A34E] shadow-md shrink-0">
-            <Scale className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-black text-[#F5F5F5] tracking-wide uppercase">
-                Legal & Platform Policies
-              </h1>
-              <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[#1B181C] text-[#B0ACB0] rounded-md border border-[#29252A]">
-                User App Policies
-              </span>
-            </div>
-            <p className="text-xs text-[#B0ACB0] mt-0.5">
-              Manage the Terms & Conditions, Fair Play Rules & Anti-Cheat Policy, and Privacy Policy published live to players.
-            </p>
-          </div>
-        </div>
+      {/* Top Main Navigation Tabs */}
+      <div className="flex items-center gap-2 bg-[#141215] p-1.5 rounded-2xl border border-[#29252A] w-fit shadow-md">
+        <button
+          type="button"
+          onClick={() => setSettingsSection('policies')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition ${
+            settingsSection === 'policies'
+              ? 'bg-gradient-to-r from-[#C9A34E] to-[#B38F3F] text-[#0D0B0D] shadow-lg shadow-[#C9A34E]/20'
+              : 'text-[#777278] hover:text-[#F5F5F5] hover:bg-[#1B181C]'
+          }`}
+        >
+          <Scale className="w-4 h-4" />
+          <span>Policies & Payment</span>
+        </button>
 
-        {isSaved && (
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#350A12]/80 border border-[#C9A34E]/40 text-[#C9A34E] text-xs font-bold shadow-lg animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-[#C9A34E]" />
-            <span>Policies Saved & Published!</span>
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => setSettingsSection('support')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition ${
+            settingsSection === 'support'
+              ? 'bg-gradient-to-r from-[#C9A34E] to-[#B38F3F] text-[#0D0B0D] shadow-lg shadow-[#C9A34E]/20'
+              : 'text-[#777278] hover:text-[#F5F5F5] hover:bg-[#1B181C]'
+          }`}
+        >
+          <Headphones className="w-4 h-4" />
+          <span>Support Management</span>
+        </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      {settingsSection === 'support' ? (
+        <SupportManagement />
+      ) : (
+        <>
+          {/* Top Header Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl bg-[#141215] border border-[#29252A] shadow-xl">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-[#1B181C] border border-[#C9A34E]/30 flex items-center justify-center text-[#C9A34E] shadow-md shrink-0">
+                <Scale className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg sm:text-xl font-black text-[#F5F5F5] tracking-wide uppercase">
+                    Legal & Platform Policies
+                  </h1>
+                  <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-[#1B181C] text-[#B0ACB0] rounded-md border border-[#29252A]">
+                    User App Policies
+                  </span>
+                </div>
+                <p className="text-xs text-[#B0ACB0] mt-0.5">
+                  Manage the Terms & Conditions, Fair Play Rules & Anti-Cheat Policy, and Privacy Policy published live to players.
+                </p>
+              </div>
+            </div>
+
+            {isSaved && (
+              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#350A12]/80 border border-[#C9A34E]/40 text-[#C9A34E] text-xs font-bold shadow-lg animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-[#C9A34E]" />
+                <span>Policies Saved & Published!</span>
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
         {/* Section 0: Payment & UPI Config */}
         <div className="bg-[#141215] border border-[#29252A] rounded-2xl p-5 sm:p-6 shadow-md hover:border-[#29252A]/80 transition">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#29252A] mb-4">
@@ -519,6 +556,8 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
           </div>
         </div>
       </form>
+      </>
+      )}
     </div>
   );
 };
