@@ -5,6 +5,7 @@ import {
   resolvePresetAvatarUrl,
   fetchPresetAvatars,
   DEFAULT_PRESET_AVATARS,
+  normalizePublicMatchId,
 } from '../../services/supabaseService';
 import {
   Search,
@@ -12,6 +13,7 @@ import {
   User,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   Ban,
   Trash2,
   Edit3,
@@ -41,7 +43,20 @@ interface UserManagementProps {
   onUpdateUserStatus: (userId: string, newStatus: UserStatus, reason?: string) => void;
   onUpdateUserWallet: (userId: string, amount: number, isAddition: boolean, note: string, walletType?: 'main' | 'winning') => Promise<void>;
   onDeleteUser: (userId: string) => void;
-  onEditUser: (userId: string, profileData: { username: string; email: string; phone: string; inGameName: string; inGameId?: string; avatar_id?: string; avatarId?: string; avatarUrl?: string }) => void;
+  onEditUser: (userId: string, profileData: { 
+    username: string; 
+    email: string; 
+    phone: string; 
+    inGameName: string; 
+    inGameId?: string; 
+    avatar_id?: string; 
+    avatarId?: string; 
+    avatarUrl?: string;
+    ffIgn?: string;
+    ffUid?: string;
+    bgmiIgn?: string;
+    bgmiUid?: string;
+  }) => void;
 }
 
 export const UserManagement: React.FC<UserManagementProps> = ({
@@ -64,13 +79,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked' | 'banned'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'banned'>('all');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const selectedUser = (users || []).find((u) => u && (u.id === selectedUserId || u.uid === selectedUserId)) || null;
 
   // Modals state
   const [showBanModal, setShowBanModal] = useState(false);
   const [banReason, setBanReason] = useState('');
+
+  // Explicit Suspension & Unsuspension State
+  const [suspendTargetUser, setSuspendTargetUser] = useState<AppUser | null>(null);
+  const [suspendReasonInput, setSuspendReasonInput] = useState('Account suspended by administrator');
+  const [unsuspendTargetUser, setUnsuspendTargetUser] = useState<AppUser | null>(null);
+  const [isProcessingStatus, setIsProcessingStatus] = useState(false);
   
   const [showWalletAdjustModal, setShowWalletAdjustModal] = useState(false);
   const [walletType, setWalletType] = useState<'main' | 'winning'>('main');
@@ -85,6 +106,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editInGameName, setEditInGameName] = useState('');
+  const [editFfIgn, setEditFfIgn] = useState('');
+  const [editFfUid, setEditFfUid] = useState('');
+  const [editBgmiIgn, setEditBgmiIgn] = useState('');
+  const [editBgmiUid, setEditBgmiUid] = useState('');
   const [editAvatarId, setEditAvatarId] = useState('avatar_1');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
 
@@ -103,14 +128,30 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       const email = (u.email || '').toLowerCase();
       const phone = u.phone || '';
       const inGameName = (u.inGameName || '').toLowerCase();
+      const ffIgn = (u.ffIgn || '').toLowerCase();
+      const ffUid = (u.ffUid || '').toLowerCase();
+      const bgmiIgn = (u.bgmiIgn || '').toLowerCase();
+      const bgmiUid = (u.bgmiUid || '').toLowerCase();
 
       const matchesSearch = !q ||
         username.includes(q) ||
         email.includes(q) ||
         phone.includes(q) ||
-        inGameName.includes(q);
+        inGameName.includes(q) ||
+        ffIgn.includes(q) ||
+        ffUid.includes(q) ||
+        bgmiIgn.includes(q) ||
+        bgmiUid.includes(q);
 
-      const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
+      const isSusp = Boolean(u.is_suspended ?? u.isSuspended ?? ['suspended', 'blocked', 'banned'].includes(String(u.status || '').toLowerCase()));
+      let matchesStatus = true;
+      if (statusFilter === 'active') {
+        matchesStatus = !isSusp;
+      } else if (statusFilter === 'suspended') {
+        matchesStatus = isSusp;
+      } else if (statusFilter === 'banned') {
+        matchesStatus = Boolean(u.is_banned || String(u.status || '').toLowerCase() === 'banned');
+      }
       return matchesSearch && matchesStatus;
     });
   }, [users, searchQuery, statusFilter]);
@@ -125,6 +166,32 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, statusFilter]);
+
+  const handleConfirmSuspend = async () => {
+    if (suspendTargetUser) {
+      try {
+        setIsProcessingStatus(true);
+        const reason = suspendReasonInput.trim() || 'Account suspended by administrator';
+        await onUpdateUserStatus(suspendTargetUser.id, 'suspended', reason);
+        setSuspendTargetUser(null);
+        setSuspendReasonInput('Account suspended by administrator');
+      } finally {
+        setIsProcessingStatus(false);
+      }
+    }
+  };
+
+  const handleConfirmUnsuspend = async () => {
+    if (unsuspendTargetUser) {
+      try {
+        setIsProcessingStatus(true);
+        await onUpdateUserStatus(unsuspendTargetUser.id, 'active', '');
+        setUnsuspendTargetUser(null);
+      } finally {
+        setIsProcessingStatus(false);
+      }
+    }
+  };
 
   const handleApplyBan = () => {
     if (selectedUser && banReason) {
@@ -154,7 +221,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         username: editUsername,
         email: editEmail,
         phone: editPhone,
-        inGameName: editInGameName,
+        inGameName: editInGameName || editFfIgn,
+        ffIgn: editFfIgn,
+        ffUid: editFfUid,
+        bgmiIgn: editBgmiIgn,
+        bgmiUid: editBgmiUid,
         avatar_id: editAvatarId,
         avatarId: editAvatarId,
         avatarUrl: editAvatarUrl
@@ -217,7 +288,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
         {/* Status Filter Pills */}
         <div className="flex items-center gap-1 bg-[#141215] p-1 rounded-xl border border-[#29252A] overflow-x-auto">
-          {(['all', 'active', 'blocked', 'banned'] as const).map((st) => (
+          {(['all', 'active', 'suspended', 'banned'] as const).map((st) => (
             <button
               key={st}
               onClick={() => setStatusFilter(st)}
@@ -286,34 +357,57 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
                     {/* In-Game Name (IGN) */}
                     <td className="px-4 py-3">
-                      <div className="font-extrabold text-[#C9A34E] text-xs">
-                        {user.inGameName ? user.inGameName : <span className="text-[#777278] font-normal">Not Set</span>}
+                      <div className="flex flex-col gap-1 text-xs">
+                        {user.bgmiIgn && (
+                          <div className="flex items-center gap-1.5 font-extrabold text-[#C9A34E]">
+                            <span className="text-[8px] tracking-wider px-1 bg-amber-500/10 text-amber-400 rounded border border-amber-500/20 font-black uppercase shrink-0">BGMI</span>
+                            <span className="truncate max-w-[120px]">{user.bgmiIgn}</span>
+                          </div>
+                        )}
+                        {(user.ffIgn || user.inGameName) && (user.ffIgn !== user.bgmiIgn) && (
+                          <div className="flex items-center gap-1.5 font-extrabold text-rose-400">
+                            <span className="text-[8px] tracking-wider px-1 bg-rose-500/10 text-rose-400 rounded border border-rose-500/20 font-black uppercase shrink-0">FF</span>
+                            <span className="truncate max-w-[120px]">{user.ffIgn || user.inGameName}</span>
+                          </div>
+                        )}
+                        {!user.bgmiIgn && !(user.ffIgn || user.inGameName) && (
+                          <span className="text-[#777278] font-normal">Not Set</span>
+                        )}
                       </div>
                     </td>
 
                     {/* Wallet Balance */}
                     <td className="px-4 py-3">
-                      <div className="font-extrabold text-[#C9A34E] text-sm">
-                        ₹{(user.walletBalance ?? 0).toLocaleString('en-IN')}
+                      <div className="font-black text-[#C9A34E] text-sm">
+                        ₹{((user.totalBalance ?? ((user.walletBalance ?? 0) + (user.unclaimedWinnings ?? 0) + (user.bonusBalance ?? 0))) ?? 0).toLocaleString('en-IN')}
                       </div>
-                      <div className="text-[10px] text-[#C9A34E] font-bold">
-                        Winnings: ₹{(user.unclaimedWinnings ?? 0).toLocaleString('en-IN')}
+                      <div className="text-[10px] text-[#B0ACB0] font-medium mt-1 space-y-0.5">
+                        <div className="flex justify-between gap-2"><span>Dep:</span><span className="text-[#C9A34E] font-bold">₹{(user.walletBalance ?? 0).toLocaleString('en-IN')}</span></div>
+                        <div className="flex justify-between gap-2"><span>Win:</span><span className="text-[#C9A34E] font-bold">₹{(user.unclaimedWinnings ?? 0).toLocaleString('en-IN')}</span></div>
+                        <div className="flex justify-between gap-2"><span>Bonus:</span><span className="text-amber-400 font-bold">₹{(user.bonusBalance ?? 0).toLocaleString('en-IN')}</span></div>
                       </div>
                     </td>
 
                     {/* Status */}
                     <td className="px-4 py-3">
-                      <span
-                        className={`px-2.5 py-0.5 text-[9px] font-black uppercase rounded-md border ${
-                          (user.status || 'active') === 'active'
-                            ? 'bg-[#350A12] text-[#C9A34E] border-[#29252A]'
-                            : (user.status || 'active') === 'blocked'
-                            ? 'bg-amber-950 text-[#C9A34E] border-amber-800'
-                            : 'bg-rose-950 text-rose-400 border-rose-800'
-                        }`}
-                      >
-                        {user.status || 'active'}
-                      </span>
+                      {Boolean(user.is_suspended ?? user.isSuspended ?? ['suspended', 'blocked', 'banned'].includes(String(user.status || '').toLowerCase())) ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="px-2 py-0.5 text-[9px] font-black uppercase rounded-md border bg-rose-950/80 text-rose-300 border-rose-700/60 inline-flex items-center gap-1 w-fit shadow-sm shadow-rose-950">
+                            <ShieldAlert className="w-2.5 h-2.5 text-rose-400" />
+                            SUSPENDED
+                          </span>
+                          {(user.banReason || user.ban_reason) && (
+                            <span className="text-[10px] text-rose-400/90 font-medium truncate max-w-[150px]" title={user.banReason || user.ban_reason}>
+                              {user.banReason || user.ban_reason}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="px-2 py-0.5 text-[9px] font-black uppercase rounded-md border bg-[#350A12] text-[#C9A34E] border-[#29252A] inline-flex items-center gap-1 w-fit">
+                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
+                          ACTIVE
+                        </span>
+                      )}
                     </td>
 
                     {/* Actions: View, Edit, Suspend */}
@@ -337,6 +431,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                             setEditEmail(user.email || '');
                             setEditPhone(user.phone || '');
                             setEditInGameName(user.inGameName || '');
+                            setEditFfIgn(user.ffIgn || user.inGameName || '');
+                            setEditFfUid(user.ffUid || user.inGameId || '');
+                            setEditBgmiIgn(user.bgmiIgn || '');
+                            setEditBgmiUid(user.bgmiUid || '');
                             setEditAvatarId(curAvatarId);
                             setEditAvatarUrl(resolvePresetAvatarUrl(curAvatarId, user.avatarUrl));
                             setShowEditModal(true);
@@ -348,23 +446,28 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         </button>
 
                         {/* Suspend / Unsuspend Button */}
-                        <button
-                          onClick={() => {
-                            if ((user.status || 'active') === 'active') {
-                              onUpdateUserStatus(user.id, 'blocked', 'Account suspended by admin');
-                            } else {
-                              onUpdateUserStatus(user.id, 'active');
-                            }
-                          }}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                            (user.status || 'active') === 'active'
-                              ? 'bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30'
-                              : 'bg-emerald-950/80 hover:bg-emerald-700 text-emerald-300 hover:text-white border border-emerald-700/60'
-                          }`}
-                        >
-                          <ShieldAlert className="w-3 h-3" />
-                          <span>{(user.status || 'active') === 'active' ? 'Suspend' : 'Unsuspend'}</span>
-                        </button>
+                        {Boolean(user.is_suspended ?? user.isSuspended ?? ['suspended', 'blocked', 'banned'].includes(String(user.status || '').toLowerCase())) ? (
+                          <button
+                            onClick={() => setUnsuspendTargetUser(user)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 bg-emerald-950/80 hover:bg-emerald-700 text-emerald-300 hover:text-white border border-emerald-700/60"
+                            title="Unsuspend account and restore player login access"
+                          >
+                            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                            <span>Unsuspend</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setSuspendTargetUser(user);
+                              setSuspendReasonInput('Account suspended by administrator');
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30"
+                            title="Suspend player account"
+                          >
+                            <ShieldAlert className="w-3 h-3" />
+                            <span>Suspend</span>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -429,9 +532,17 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 <div>
                   <h3 className="text-base font-black text-white flex items-center gap-2">
                     {selectedUser.username}
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-[#141215] text-[#C9A34E] font-bold border border-[#29252A]">
-                      {selectedUser.status}
-                    </span>
+                    {Boolean(selectedUser.is_suspended ?? selectedUser.isSuspended ?? ['suspended', 'blocked', 'banned'].includes(String(selectedUser.status || '').toLowerCase())) ? (
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-rose-950/80 text-rose-300 font-bold border border-rose-700/60 flex items-center gap-1">
+                        <ShieldAlert className="w-3 h-3 text-rose-400" />
+                        SUSPENDED
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-[#141215] text-[#C9A34E] font-bold border border-[#29252A] flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        ACTIVE
+                      </span>
+                    )}
                   </h3>
                   <p className="text-xs text-[#B0ACB0]/80">
                     UID: {selectedUser.uid} • Joined {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString() : 'N/A'}
@@ -463,6 +574,31 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Account Suspension Banner */}
+            {Boolean(selectedUser.is_suspended ?? selectedUser.isSuspended ?? ['suspended', 'blocked', 'banned'].includes(String(selectedUser.status || '').toLowerCase())) && (
+              <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-700/50 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <ShieldAlert className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-rose-300 tracking-wide">Account Suspended by Administrator</h4>
+                    <p className="text-xs text-rose-200/90 mt-0.5">
+                      <strong>Reason:</strong> {selectedUser.banReason || selectedUser.ban_reason || 'Account suspended by administrator'}
+                    </p>
+                    <p className="text-[11px] text-rose-400/80 mt-0.5">
+                      Authentication access (Email/Password & Google) is persistently blocked.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setUnsuspendTargetUser(selectedUser)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1 flex-shrink-0"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Unsuspend</span>
+                </button>
+              </div>
+            )}
 
             {/* Sub Navigation Tabs */}
             <div className="flex items-center gap-2 border-b border-[#29252A] pb-2">
@@ -503,24 +639,48 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <div className="space-y-4">
                 {/* Gaming Profile Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A] col-span-2 sm:col-span-1">
-                    <p className="text-[10px] text-[#777278] uppercase font-bold">In-Game Name (IGN)</p>
-                    <p className="text-sm font-black text-[#C9A34E] mt-0.5">
-                      {selectedUser.inGameName ? selectedUser.inGameName : <span className="text-[#777278] font-normal">Not Set</span>}
-                    </p>
+                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A] col-span-2 sm:col-span-1 space-y-1.5">
+                    <p className="text-[10px] text-[#777278] uppercase font-bold">Gaming Profiles</p>
+                    <div className="text-xs space-y-1">
+                      {selectedUser.bgmiIgn ? (
+                        <p className="font-bold text-[#C9A34E] flex items-center gap-1.5">
+                          <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded uppercase font-black">BGMI</span>
+                          <span>{selectedUser.bgmiIgn}</span>
+                        </p>
+                      ) : null}
+                      {(selectedUser.ffIgn || selectedUser.inGameName) && (selectedUser.ffIgn !== selectedUser.bgmiIgn) ? (
+                        <p className="font-bold text-rose-400 flex items-center gap-1.5">
+                          <span className="text-[8px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-1 rounded uppercase font-black">FF</span>
+                          <span>{selectedUser.ffIgn || selectedUser.inGameName}</span>
+                        </p>
+                      ) : null}
+                      {!selectedUser.bgmiIgn && !(selectedUser.ffIgn || selectedUser.inGameName) && (
+                        <span className="text-[#777278] font-normal">Not Set</span>
+                      )}
+                    </div>
                   </div>
                   <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A]">
-                    <p className="text-[10px] text-[#777278] uppercase font-bold">Main Wallet</p>
-                    <p className="text-sm font-black text-[#C9A34E] mt-0.5">₹{selectedUser.walletBalance}</p>
+                    <p className="text-[10px] text-[#777278] uppercase font-bold">Main (Deposit)</p>
+                    <p className="text-sm font-black text-[#C9A34E] mt-0.5">₹{(selectedUser.walletBalance ?? 0).toLocaleString('en-IN')}</p>
                   </div>
                   <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A]">
-                    <p className="text-[10px] text-[#777278] uppercase font-bold">Winning Balance</p>
-                    <p className="text-sm font-black text-[#C9A34E] mt-0.5">₹{selectedUser.unclaimedWinnings}</p>
+                    <p className="text-[10px] text-[#777278] uppercase font-bold">Winnings</p>
+                    <p className="text-sm font-black text-[#C9A34E] mt-0.5">₹{(selectedUser.unclaimedWinnings ?? 0).toLocaleString('en-IN')}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A]">
+                    <p className="text-[10px] text-[#777278] uppercase font-bold">Bonus Balance</p>
+                    <p className="text-sm font-black text-amber-400 mt-0.5">₹{(selectedUser.bonusBalance ?? 0).toLocaleString('en-IN')}</p>
                   </div>
                 </div>
 
                 {/* Account Details */}
                 <div className="p-3.5 rounded-xl bg-[#141215] border border-[#29252A] space-y-2 text-xs">
+                  <div className="flex justify-between items-center text-[#B0ACB0] border-b border-[#29252A] pb-2 mb-2 bg-[#1B181C]/40 p-2 rounded-lg">
+                    <span className="text-[#C9A34E] font-black uppercase tracking-wider text-[10px]">Total Combined Balance:</span>
+                    <span className="font-black text-[#C9A34E] text-base">
+                      ₹{((selectedUser.totalBalance ?? ((selectedUser.walletBalance ?? 0) + (selectedUser.unclaimedWinnings ?? 0) + (selectedUser.bonusBalance ?? 0))) ?? 0).toLocaleString('en-IN')}
+                    </span>
+                  </div>
                   <div className="flex justify-between text-[#B0ACB0]">
                     <span className="text-[#777278]">Email Address:</span>
                     <span className="font-semibold">
@@ -583,12 +743,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       (m.matchType || '').toUpperCase().includes('ULTIMATE ROYALE') ||
                       Number(m.maxSlots) === 100;
                     const gameBadge = isBgmiMatch ? 'BGMI' : (m.game || 'FREE FIRE');
+                    const matchId = normalizePublicMatchId(m.matchId || (m as any).match_id) || m.matchId || (m as any).match_id || '';
 
                     return (
                       <div key={m.id} className="p-3 rounded-xl bg-[#141215] border border-[#29252A] text-xs flex justify-between items-center">
                         <div>
-                          <p className="font-bold text-white">{m.title}</p>
-                          <p className="text-[10px] text-[#B0ACB0]">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-white">{m.title}</p>
+                            <span className="font-mono text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded tracking-wider">
+                              {matchId}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-[#B0ACB0] mt-0.5">
                             <span className={`font-black ${isBgmiMatch ? 'text-emerald-400' : 'text-[#FF3048]'}`}>
                               {gameBadge}
                             </span>
@@ -690,16 +856,37 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             )}
 
             {/* Modal Actions */}
-            <div className="pt-3 border-t border-[#29252A] flex justify-between gap-2">
-              <button
-                onClick={() => {
-                  onDeleteUser(selectedUser.id);
-                  setSelectedUserId(null);
-                }}
-                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-xs font-black flex items-center gap-1.5 shadow-md shadow-rose-950/50 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-white" /> Delete User
-              </button>
+            <div className="pt-3 border-t border-[#29252A] flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    onDeleteUser(selectedUser.id);
+                    setSelectedUserId(null);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-xs font-black flex items-center gap-1.5 shadow-md shadow-rose-950/50 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-white" /> Delete User
+                </button>
+
+                {Boolean(selectedUser.is_suspended ?? selectedUser.isSuspended ?? ['suspended', 'blocked', 'banned'].includes(String(selectedUser.status || '').toLowerCase())) ? (
+                  <button
+                    onClick={() => setUnsuspendTargetUser(selectedUser)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-950/50"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-white" /> Unsuspend Account
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setSuspendTargetUser(selectedUser);
+                      setSuspendReasonInput('Account suspended by administrator');
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5" /> Suspend Account
+                  </button>
+                )}
+              </div>
 
               <button
                 onClick={() => setSelectedUserId(null)}
@@ -709,6 +896,95 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Suspend Account Modal */}
+      {suspendTargetUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-md bg-[#0D0B0D] border border-rose-600/40 rounded-3xl p-6 space-y-4 shadow-2xl">
+            <h3 className="text-base font-black text-rose-400 flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-rose-400" /> Suspend Player: {suspendTargetUser.username}
+            </h3>
+            <p className="text-xs text-[#B0ACB0] leading-relaxed">
+              Suspension immediately halts all tournament activity and blocks both Email/Password and Google authentication.
+            </p>
+
+            <div>
+              <label className="block text-[10px] uppercase font-bold text-[#B0ACB0] mb-1.5">
+                Administrator Suspension Reason <span className="text-rose-400">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={suspendReasonInput}
+                onChange={(e) => setSuspendReasonInput(e.target.value)}
+                placeholder="e.g. Account suspended due to detected emulator scripts or abusive behavior..."
+                className="w-full bg-[#141215] text-white text-xs p-3 rounded-xl border border-rose-900/60 focus:border-rose-500 focus:outline-none"
+              />
+              <p className="text-[11px] text-[#777278] mt-1">
+                This reason is preserved in the database and visible to administrators.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                disabled={isProcessingStatus}
+                onClick={() => {
+                  setSuspendTargetUser(null);
+                  setSuspendReasonInput('Account suspended by administrator');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-[#141215] hover:bg-[#29252A] text-[#B0ACB0] text-xs font-bold transition"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={isProcessingStatus || !suspendReasonInput.trim()}
+                onClick={handleConfirmSuspend}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-rose-950/60 disabled:opacity-50"
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                {isProcessingStatus ? 'Suspending...' : 'Confirm Suspension'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Unsuspend Account Modal */}
+      {unsuspendTargetUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-md bg-[#0D0B0D] border border-emerald-600/40 rounded-3xl p-6 space-y-4 shadow-2xl">
+            <h3 className="text-base font-black text-emerald-400 flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" /> Restore Account: {unsuspendTargetUser.username}
+            </h3>
+            <p className="text-xs text-[#B0ACB0] leading-relaxed">
+              Are you sure you want to unsuspend this player? Their account status will revert to <strong className="text-emerald-400">ACTIVE</strong>, and their Email/Password and Google authentication access will be restored immediately.
+            </p>
+
+            {unsuspendTargetUser.banReason && (
+              <div className="p-2.5 rounded-xl bg-[#141215] border border-[#29252A] text-[11px] text-[#B0ACB0]">
+                <strong>Previous Suspension Reason:</strong> {unsuspendTargetUser.banReason}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                disabled={isProcessingStatus}
+                onClick={() => setUnsuspendTargetUser(null)}
+                className="px-3.5 py-2 rounded-xl bg-[#141215] hover:bg-[#29252A] text-[#B0ACB0] text-xs font-bold transition"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={isProcessingStatus}
+                onClick={handleConfirmUnsuspend}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950/60 disabled:opacity-50"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                {isProcessingStatus ? 'Restoring...' : 'Confirm Unsuspend'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -867,20 +1143,71 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* In-Game Name (IGN) */}
-              <div className="sm:col-span-2">
-                <label className="block text-[10px] uppercase font-black tracking-wider text-[#B0ACB0] mb-1">
-                  In-Game Name (IGN)
+              {/* BGMI Gaming Profile */}
+              <div className="sm:col-span-1">
+                <label className="block text-[10px] uppercase font-black tracking-wider text-[#B0ACB0] mb-1 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span> BGMI In-Game Name (IGN)
                 </label>
                 <div className="relative">
                   <Gamepad2 className="absolute left-3 top-3 w-4 h-4 text-[#777278]" />
                   <input
                     type="text"
-                    required
-                    value={editInGameName}
-                    onChange={(e) => setEditInGameName(e.target.value)}
-                    placeholder="e.g. VIPER•SNIPER"
-                    className="w-full bg-[#141215] text-white text-xs pl-10 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
+                    value={editBgmiIgn}
+                    onChange={(e) => setEditBgmiIgn(e.target.value)}
+                    placeholder="e.g. BGMI_LEGEND"
+                    className="w-full bg-[#141215] text-white text-xs pl-10 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-medium"
+                  />
+                </div>
+              </div>
+
+              <div className="sm:col-span-1">
+                <label className="block text-[10px] uppercase font-black tracking-wider text-[#B0ACB0] mb-1 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span> BGMI Character ID (UID)
+                </label>
+                <div className="relative">
+                  <Gamepad2 className="absolute left-3 top-3 w-4 h-4 text-[#777278]" />
+                  <input
+                    type="text"
+                    value={editBgmiUid}
+                    onChange={(e) => setEditBgmiUid(e.target.value)}
+                    placeholder="e.g. 5123456789"
+                    className="w-full bg-[#141215] text-white text-xs pl-10 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-medium"
+                  />
+                </div>
+              </div>
+
+              {/* Free Fire Gaming Profile */}
+              <div className="sm:col-span-1">
+                <label className="block text-[10px] uppercase font-black tracking-wider text-[#B0ACB0] mb-1 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0"></span> Free Fire In-Game Name (IGN)
+                </label>
+                <div className="relative">
+                  <Gamepad2 className="absolute left-3 top-3 w-4 h-4 text-[#777278]" />
+                  <input
+                    type="text"
+                    value={editFfIgn}
+                    onChange={(e) => {
+                      setEditFfIgn(e.target.value);
+                      setEditInGameName(e.target.value);
+                    }}
+                    placeholder="e.g. FF_WARRIOR"
+                    className="w-full bg-[#141215] text-white text-xs pl-10 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-medium"
+                  />
+                </div>
+              </div>
+
+              <div className="sm:col-span-1">
+                <label className="block text-[10px] uppercase font-black tracking-wider text-[#B0ACB0] mb-1 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0"></span> Free Fire UID
+                </label>
+                <div className="relative">
+                  <Gamepad2 className="absolute left-3 top-3 w-4 h-4 text-[#777278]" />
+                  <input
+                    type="text"
+                    value={editFfUid}
+                    onChange={(e) => setEditFfUid(e.target.value)}
+                    placeholder="e.g. 987654321"
+                    className="w-full bg-[#141215] text-white text-xs pl-10 pr-3 py-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-medium"
                   />
                 </div>
               </div>

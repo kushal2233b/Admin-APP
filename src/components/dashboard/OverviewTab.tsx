@@ -5,7 +5,8 @@ import {
   WalletTransaction
 } from '../../types';
 import { resolveParticipantDetails, getMatchBannerImage } from '../tournaments/TournamentManagement';
-import { resolveUserDisplayName } from '../../services/supabaseService';
+import { resolveUserDisplayName, resolveTransactionUser } from '../../services/supabaseService';
+import { useAuth } from '../../context/AuthContext';
 import {
   Users,
   Trophy,
@@ -307,7 +308,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <p className="text-xs text-[#777278] text-center py-6">No recent deposits recorded.</p>
             ) : (
               recentDeposits.map((tx) => {
-                const userDisplay = resolveUserDisplayName(tx, safeUsers);
+                const txUser = resolveTransactionUser(tx, safeUsers);
                 return (
                   <div
                     key={tx.id}
@@ -315,13 +316,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     className="p-3 rounded-xl bg-[#141215] border border-[#29252A] flex items-center justify-between hover:border-amber-400/40 transition cursor-pointer"
                   >
                     <div>
-                      <p className="text-xs font-extrabold text-white">
-                        {userDisplay.username}
-                        {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
-                          <span className="text-[11px] text-[#B0ACB0] font-normal ml-1">({userDisplay.inGameName})</span>
-                        ) : null}
+                      <p className="text-xs font-extrabold text-white flex items-center gap-1.5 flex-wrap">
+                        <span>{txUser.username}</span>
+                        {txUser.email !== 'N/A' && (
+                          <span className="text-[10px] text-amber-200 font-normal bg-[#1B181C] px-1.5 py-0.5 rounded border border-[#29252A]">
+                            {txUser.email}
+                          </span>
+                        )}
                       </p>
-                      <p className="text-[10px] text-[#B0ACB0]">
+                      <p className="text-[10px] text-[#B0ACB0] mt-0.5">
                         Method: {tx.paymentMethod} • Ref: {tx.referenceId}
                       </p>
                     </div>
@@ -365,7 +368,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               <p className="text-xs text-[#777278] text-center py-6">No recent withdrawals recorded.</p>
             ) : (
               recentWithdrawals.map((tx) => {
-                const userDisplay = resolveUserDisplayName(tx, safeUsers);
+                const txUser = resolveTransactionUser(tx, safeUsers);
                 return (
                   <div
                     key={tx.id}
@@ -373,13 +376,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                     className="p-3 rounded-xl bg-[#141215] border border-[#29252A] flex items-center justify-between hover:border-amber-400/40 transition cursor-pointer"
                   >
                     <div>
-                      <p className="text-xs font-extrabold text-white">
-                        {userDisplay.username}
-                        {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
-                          <span className="text-[11px] text-[#B0ACB0] font-normal ml-1">({userDisplay.inGameName})</span>
-                        ) : null}
+                      <p className="text-xs font-extrabold text-white flex items-center gap-1.5 flex-wrap">
+                        <span>{txUser.username}</span>
+                        {txUser.email !== 'N/A' && (
+                          <span className="text-[10px] text-amber-200 font-normal bg-[#1B181C] px-1.5 py-0.5 rounded border border-[#29252A]">
+                            {txUser.email}
+                          </span>
+                        )}
                       </p>
-                      <p className="text-[10px] text-[#B0ACB0]">
+                      <p className="text-[10px] text-[#B0ACB0] mt-0.5">
                         Req ID: {tx.withdrawalRequestId || tx.referenceId || tx.id} • UPI: {tx.upiId || 'Not Provided'}
                       </p>
                     </div>

@@ -18,7 +18,9 @@ import { getCategoryBannerImage, handleImageFallback } from '../../data/category
 import { initialCategories } from '../../data/mockData';
 import { Upload, Eye, Copy, Search, RefreshCw, Clock, ShieldCheck, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { getMatchParticipantsFromSupabase, getMatchDateTimeStrings } from '../../services/supabaseService';
+import { supabase } from '../../services/supabase';
+import { getMatchParticipantsFromSupabase, getMatchDateTimeStrings, normalizePublicMatchId, isMatchLiveBySchedule, parseMatchStartTimeMs } from '../../services/supabaseService';
+import { subscribeServerTimeTick } from '../../services/serverTimeSync';
 import {
   Trophy,
   Plus,
@@ -57,8 +59,8 @@ interface TournamentManagementProps {
   users?: AppUser[];
   onAddBanner?: (banner: Omit<Banner, 'id' | 'createdAt'>) => void;
   onDeleteBanner?: (id: string) => void;
-  onCreateTournament: (tournament: Omit<Tournament, 'id' | 'createdAt' | 'filledSlots' | 'participants'>) => void;
-  onUpdateTournament: (tournament: Tournament) => void;
+  onCreateTournament: (tournament: Omit<Tournament, 'id' | 'createdAt' | 'filledSlots' | 'participants'>) => void | Promise<void>;
+  onUpdateTournament: (tournament: Tournament) => void | Promise<void>;
   onDeleteTournament: (id: string) => void;
   onReleaseRoomCredentials: (id: string, roomId: string, pass: string) => void;
   onPublishMatchResults: (id: string, updatedParticipants: Participant[]) => void;
@@ -72,6 +74,7 @@ interface TournamentManagementProps {
   openCreateModalDirectly?: boolean;
   savedImages?: SavedImage[];
   onNavigateToSavedImages?: () => void;
+  onRefresh?: () => void;
 }
 
 export function getPrizeForRank(rank: number, distribution: PrizeDistributionItem[]): number {
@@ -374,6 +377,402 @@ export const getMatchBannerImage = (match: Partial<Tournament>, _bannersList: Ba
   return getCategoryBannerImage(game, categoriesList);
 };
 
+function TournamentResultFormPanel({
+  match,
+  users,
+  currentUser,
+  onSubmitResultForVerification,
+  onPublishMatchResults,
+  onClose
+}: {
+  match: Tournament;
+  users: AppUser[];
+  currentUser: AppUser | null;
+  onSubmitResultForVerification?: (matchId: string, results: any[]) => Promise<any> | void;
+  onPublishMatchResults?: (matchId: string, results: any[]) => Promise<any> | void;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [statusState, setStatusState] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | 'NONE'>('NONE');
+  const [rejectionReason, setRejectionReason] = useState<string | null>(null);
+  const [participantResults, setParticipantResults] = useState<any[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isBgmi = Boolean(
+    (match.game || (match as any).game_category || match.title || '').toUpperCase().includes('BGMI') ||
+    (match.game || (match as any).game_category || match.title || '').toUpperCase().includes('BATTLEGROUND') ||
+    (match.game || (match as any).game_category || match.title || '').toUpperCase().includes('PUBG')
+  );
+
+  const loadDataFromSupabase = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: regsData } = await supabase
+        .from('registrations')
+        .select('*')
+        .eq('tournament_id', match.id);
+
+      const userIds = Array.from(new Set([
+        ...(regsData || []).map(r => r.user_id).filter(Boolean),
+        ...((match.participants || []).map((p: any) => p.userId || p.user_id || p.id).filter(Boolean))
+      ]));
+
+      let profilesData: any[] = [];
+      if (userIds.length > 0) {
+        const { data: profs } = await supabase.from('profiles').select('*').in('id', userIds);
+        profilesData = profs || [];
+      } else {
+        const { data: profs } = await supabase.from('profiles').select('*').limit(200);
+        profilesData = profs || [];
+      }
+      const profilesMap = new Map<string, any>();
+      profilesData.forEach(p => {
+        if (p.id) profilesMap.set(String(p.id).toLowerCase(), p);
+      });
+
+      const { data: reqsData } = await supabase
+        .from('result_requests')
+        .select('*')
+        .or(`tournament_id.eq.${match.id},match_id.eq.${match.id}`)
+        .order('created_at', { ascending: false });
+
+      console.log('[RESULT VERIFY] result_request fetched for match:', match.id, reqsData);
+
+      const latestReq = reqsData && reqsData.length > 0 ? reqsData[0] : null;
+      const currentStatus = (latestReq?.status || 'NONE').toUpperCase() as any;
+
+      let rawResults: any[] = [];
+      if (latestReq) {
+        rawResults = Array.isArray(latestReq.submitted_results)
+          ? latestReq.submitted_results
+          : (Array.isArray(latestReq.participant_results) ? latestReq.participant_results : []);
+      } else if (regsData && regsData.length > 0) {
+        rawResults = regsData;
+      } else {
+        rawResults = match.participants || [];
+      }
+
+      const resolvedList = rawResults.map((p: any, idx: number) => {
+        const uId = (p.user_id || p.userId || p.userAuthUid || p.uid || p.id || '').toString().trim();
+        const prof = profilesMap.get(uId.toLowerCase());
+        const reg = (regsData || []).find(r => String(r.user_id).toLowerCase() === uId.toLowerCase());
+
+        const gameIgn = isBgmi
+          ? (prof?.bgmi_ign || prof?.bgmi_name || p.inGameName || p.gameIgn || p.ign || 'N/A')
+          : (prof?.ff_ign || prof?.ff_name || p.inGameName || p.gameIgn || p.ign || 'N/A');
+
+        const userName = prof?.name || prof?.full_name || prof?.display_name || prof?.username || p.username || p.name || 'Player';
+        const userEmail = prof?.email || p.email || 'N/A';
+        const userPhone = prof?.phone || p.phone || 'N/A';
+        const slotNo = p.slotNumber || p.slot_number || p.slot || reg?.slot_number || (idx + 1);
+
+        const curRank = Number(p.rank ?? p.rank_position ?? reg?.rank_position ?? (idx + 1));
+        const curKills = Number(p.kills ?? reg?.kills ?? 0);
+        const curWinnings = Number(p.prizeWon ?? p.winnings ?? reg?.winnings ?? 0);
+
+        return {
+          ...p,
+          slotNumber: slotNo,
+          userId: uId,
+          user_id: uId,
+          username: userName,
+          email: userEmail,
+          phone: userPhone,
+          inGameId: prof?.bgmi_uid || prof?.ff_uid || p.inGameId || p.gameUid || 'N/A',
+          inGameName: gameIgn,
+          gameIgn: gameIgn,
+          rank: curRank,
+          kills: curKills,
+          prizeWon: curWinnings
+        };
+      });
+
+      setStatusState(currentStatus);
+      setRejectionReason(latestReq?.review_note || latestReq?.rejection_reason || null);
+      setParticipantResults(resolvedList);
+    } catch (err) {
+      console.error('[RESULT VERIFY] Error fetching tournament result state:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [match.id, match.participants, isBgmi]);
+
+  useEffect(() => {
+    loadDataFromSupabase();
+  }, [loadDataFromSupabase]);
+
+  const handleSubmit = async (isDirectPublish = false) => {
+    if (isSubmitting) return;
+    const hasResults = participantResults.some(p => (p.rank || 0) > 0 || (p.kills || 0) > 0 || (p.prizeWon || 0) > 0);
+    if (!hasResults && !confirm('No ranks/kills entered. Submit result request?')) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const enriched = participantResults.map((p, idx) => {
+        const details = resolveParticipantDetails(p, users, match);
+        const slotNo = p.slotNumber || (idx + 1);
+        const curRank = Number(p.rank || idx + 1);
+        const curKills = Number(p.kills || 0);
+        const rankPrize = getPrizeForRank(curRank, match.prizeDistribution || []);
+        const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
+        const calculatedTotal = rankPrize + (curKills * perKillReward);
+        const finalPrizeWon = p.prizeWon !== undefined && p.prizeWon > 0 ? p.prizeWon : calculatedTotal;
+
+        return {
+          ...p,
+          slotNumber: slotNo,
+          userId: details.userAuthUid !== 'N/A' ? details.userAuthUid : (p.userId || p.user_id || p.uid || ''),
+          email: details.email !== 'N/A' ? details.email : (p.email || ''),
+          inGameId: details.gameUid !== 'N/A' ? details.gameUid : (p.inGameId || ''),
+          inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : (p.inGameName || p.gameIgn || ''),
+          username: details.username || 'Player',
+          rank: curRank,
+          kills: curKills,
+          prizeWon: finalPrizeWon
+        };
+      });
+
+      if (isDirectPublish && onPublishMatchResults) {
+        await onPublishMatchResults(match.id, enriched);
+        alert('Match results published successfully!');
+        onClose();
+      } else if (onSubmitResultForVerification) {
+        await onSubmitResultForVerification(match.id, enriched);
+        await loadDataFromSupabase();
+        alert('Match result submitted successfully! Pending Admin verification.');
+      }
+    } catch (e: any) {
+      console.error('Submission failed', e);
+      alert(`Submission failed: ${e?.message || 'Unknown error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mt-3 p-4 rounded-xl bg-[#141215] border border-[#29252A] text-center text-xs text-[#B0ACB0] flex items-center justify-center gap-2">
+        <Clock className="w-4 h-4 animate-spin text-[#C9A34E]" />
+        <span>Fetching live match result status from Supabase...</span>
+      </div>
+    );
+  }
+
+  const isPending = statusState === 'PENDING';
+  const isApproved = statusState === 'APPROVED';
+  const isRejected = statusState === 'REJECTED';
+
+  return (
+    <div className="mt-3 p-4 rounded-xl bg-[#141215] border border-[#29252A] space-y-3.5 max-h-[500px] overflow-y-auto custom-scrollbar animate-in slide-in-from-top-1">
+      <div className="flex items-center justify-between border-b border-[#29252A] pb-2.5">
+        <div className="flex items-center gap-2">
+          <Award className="w-4 h-4 text-[#C9A34E]" />
+          <h4 className="text-xs font-black text-[#F5F5F5]">
+            Match Result Verification
+          </h4>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-[#777278] hover:text-white"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {isPending && (
+        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-1">
+          <div className="flex items-center justify-between font-extrabold text-[#C9A34E]">
+            <span className="flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-[#C9A34E]" /> RESULT SENT FOR VERIFICATION
+            </span>
+            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-[10px] uppercase font-black">PENDING REVIEW</span>
+          </div>
+          <p className="text-[11px] text-[#B0ACB0]">
+            Staff submitted results for this match. It is currently PENDING Admin verification.
+          </p>
+        </div>
+      )}
+
+      {isApproved && (
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs space-y-1">
+          <div className="flex items-center justify-between font-extrabold text-emerald-400">
+            <span className="flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> RESULT APPROVED & PUBLISHED
+            </span>
+            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-[10px] uppercase font-black">APPROVED</span>
+          </div>
+          <p className="text-[11px] text-[#B0ACB0]">
+            Match results were approved by Admin and officially published.
+          </p>
+        </div>
+      )}
+
+      {isRejected && (
+        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs space-y-1.5">
+          <div className="flex items-center justify-between font-extrabold text-rose-400">
+            <span className="flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-rose-400" /> RESULT REJECTED BY ADMIN
+            </span>
+            <span className="px-2 py-0.5 rounded bg-rose-500/20 text-[10px] uppercase font-black">REJECTED</span>
+          </div>
+          {rejectionReason && (
+            <div className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-[11px] text-rose-200">
+              <span className="font-bold">Rejection Reason:</span> {rejectionReason}
+            </div>
+          )}
+          <p className="text-[11px] text-[#B0ACB0]">
+            Please review the rejection reason, correct the player ranks/kills below, and click <strong className="text-white">Resubmit for Admin Verification</strong>.
+          </p>
+        </div>
+      )}
+
+      {(!participantResults || participantResults.length === 0) ? (
+        <div className="p-4 text-center rounded-xl bg-[#141215] text-[#777278] text-xs">
+          No registered participants found for this match.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {participantResults.map((p, idx) => {
+            const slotNo = p.slotNumber || (idx + 1);
+            const userEmail = p.email || 'N/A';
+            const gameIgn = p.inGameName || p.gameIgn || 'N/A';
+            const username = p.username || p.displayName || 'Player';
+
+            return (
+              <div key={p.userId || p.user_id || idx} className="p-3 rounded-xl bg-[#141215] border border-[#29252A]/40 space-y-2.5 text-xs">
+                <div className="flex items-center justify-between font-bold text-[#B0ACB0]">
+                  <span className="text-[#C9A34E]">Slot #{slotNo} - {username}</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-[#0D0B0D] p-2 rounded-lg border border-[#29252A]/40 text-[10px] text-[#B0ACB0]">
+                  <div className="truncate"><span className="text-[#777278] font-bold mr-1">Email:</span><span className="text-white font-medium">{userEmail}</span></div>
+                  <div className="truncate"><span className="text-[#777278] font-bold mr-1">IGN:</span><span className="text-[#C9A34E] font-extrabold">{gameIgn}</span></div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div>
+                    <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Rank</label>
+                    <input
+                      type="number"
+                      min="1"
+                      disabled={isPending || isApproved}
+                      value={p.rank && !isNaN(Number(p.rank)) ? p.rank : idx + 1}
+                      onChange={(e) => {
+                        const updated = [...participantResults];
+                        const rank = isNaN(Number(e.target.value)) ? idx + 1 : Number(e.target.value);
+                        const kills = p.kills && !isNaN(Number(p.kills)) ? p.kills : 0;
+                        const rankPrize = getPrizeForRank(rank, match.prizeDistribution || []);
+                        const perKill = match.perKillReward && !isNaN(Number(match.perKillReward)) ? match.perKillReward : 0;
+                        updated[idx] = { 
+                          ...updated[idx], 
+                          rank,
+                          prizeWon: rankPrize + (kills * perKill)
+                        };
+                        setParticipantResults(updated);
+                      }}
+                      className="w-full bg-[#141215] text-white text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Kills</label>
+                    <input
+                      type="number"
+                      min="0"
+                      disabled={isPending || isApproved}
+                      value={p.kills !== undefined && !isNaN(Number(p.kills)) ? p.kills : 0}
+                      onChange={(e) => {
+                        const updated = [...participantResults];
+                        const kills = isNaN(Number(e.target.value)) ? 0 : Number(e.target.value);
+                        const rank = p.rank && !isNaN(Number(p.rank)) ? p.rank : idx + 1;
+                        const rankPrize = getPrizeForRank(rank, match.prizeDistribution || []);
+                        const perKill = match.perKillReward && !isNaN(Number(match.perKillReward)) ? match.perKillReward : 0;
+                        updated[idx] = { 
+                          ...updated[idx], 
+                          kills, 
+                          prizeWon: rankPrize + (kills * perKill)
+                        };
+                        setParticipantResults(updated);
+                      }}
+                      className="w-full bg-[#141215] text-white text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Prize Won (₹)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      disabled={isPending || isApproved}
+                      value={p.prizeWon !== undefined && !isNaN(Number(p.prizeWon)) ? p.prizeWon : 0}
+                      onChange={(e) => {
+                        const updated = [...participantResults];
+                        updated[idx] = { ...updated[idx], prizeWon: isNaN(Number(e.target.value)) ? 0 : Number(e.target.value) };
+                        setParticipantResults(updated);
+                      }}
+                      className="w-full bg-[#141215] text-[#C9A34E] font-bold text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-[#29252A]">
+        <div className="text-[10px] text-[#777278]">
+          {isPending ? (
+            <span className="text-[#C9A34E] font-bold flex items-center gap-1">
+              <Clock className="w-3 h-3 text-[#C9A34E]" /> Result is pending Admin review.
+            </span>
+          ) : isRejected ? (
+            <span className="text-rose-400 font-bold flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3 text-rose-400" /> You can modify and resubmit the result.
+            </span>
+          ) : (
+            <span className="text-[#B0ACB0]">
+              Staff Mode: Submitting creates a result request for Admin verification.
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs text-[#B0ACB0] hover:text-white font-medium"
+          >
+            Close
+          </button>
+
+          {!isPending && !isApproved && onSubmitResultForVerification && (
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => handleSubmit(false)}
+              className="px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] bg-[#C9A34E] hover:bg-amber-400 text-black shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <span>{isRejected ? 'Resubmit for Admin Verification' : 'Submit for Admin Verification'}</span>
+            </button>
+          )}
+
+          {currentUser?.role !== 'staff' && !isApproved && onPublishMatchResults && (
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => handleSubmit(true)}
+              className="px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] bg-emerald-500 hover:bg-emerald-400 text-black shadow-md flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            >
+              <span>Direct Publish</span>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   tournaments,
   categories = [],
@@ -396,12 +795,37 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   onDeleteMatchRule,
   openCreateModalDirectly = false,
   savedImages = [],
-  onNavigateToSavedImages
+  onNavigateToSavedImages,
+  onRefresh
 }) => {
   const { currentUser } = useAuth();
   const [filterGame, setFilterGame] = useState<string>('all');
   const [filterMode, setFilterMode] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [matchSearchQuery, setMatchSearchQuery] = useState<string>('');
+
+  // Admin View & Layout Mode Management
+  const [displayView, setDisplayView] = useState<'compact' | 'table' | 'cards'>('compact');
+  const [compactImageMode, setCompactImageMode] = useState<'side' | 'banner' | 'none'>('side');
+  const [expandedAccordions, setExpandedAccordions] = useState<Record<string, { players?: boolean; prizes?: boolean }>>({});
+
+  const toggleAccordion = (matchId: string, type: 'players' | 'prizes') => {
+    setExpandedAccordions((prev) => ({
+      ...prev,
+      [matchId]: {
+        ...prev[matchId],
+        [type]: !prev[matchId]?.[type]
+      }
+    }));
+  };
+
+  // Continuous synchronized ticker for dynamic schedule status evaluation without page refresh
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    return subscribeServerTimeTick(() => {
+      setClockTick(prev => prev + 1);
+    });
+  }, []);
 
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState<boolean>(openCreateModalDirectly);
@@ -528,7 +952,9 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       prizeDistribution: match.prizeDistribution || [],
       organizer: match.organizer || 'WinX7 Official',
       tags: match.tags || [],
-      version: '1.0'
+      version: '1.0',
+      matchId: undefined,
+      match_id: undefined
     };
 
     onCreateTournament(duplicatePayload);
@@ -842,6 +1268,21 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
   // Filter logic
   const filteredTournaments = (tournaments || []).filter((t) => {
     if (!t) return false;
+
+    // 0. Search Query filter (Match ID, Title, Map, Game, ID)
+    if (matchSearchQuery.trim()) {
+      const q = matchSearchQuery.trim().toLowerCase();
+      const rawMatch = t.matchId || (t as any).match_id;
+      const normalizedMatch = normalizePublicMatchId(rawMatch);
+      const matchIdStr = (normalizedMatch || rawMatch || '').toLowerCase();
+      const rawMatchStr = (rawMatch || '').toLowerCase();
+      const titleStr = (t.title || '').toLowerCase();
+      const idStr = (t.id || '').toLowerCase();
+      const mapStr = (t.map || '').toLowerCase();
+      const gameStr = (t.game || '').toLowerCase();
+      const matchesSearch = matchIdStr.includes(q) || rawMatchStr.includes(q) || titleStr.includes(q) || idStr.includes(q) || mapStr.includes(q) || gameStr.includes(q);
+      if (!matchesSearch) return false;
+    }
     
     // 1. GAME filter
     const isTGameBgmi = 
@@ -888,9 +1329,16 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       matchesMode = tMode === filterModeUpper || tMode.includes(filterModeUpper);
     }
     
-    const tStatus = (t.status || '').toLowerCase();
+    let tStatus = (t.status || '').toLowerCase();
     const isCompleted = tStatus === 'finished' || tStatus === 'completed' || (t as any).results_published === true || Boolean((t as any).completedAt || (t as any).completed_at);
     const isCancelled = tStatus === 'cancelled';
+
+    if (!isCompleted && !isCancelled && (tStatus === 'upcoming' || tStatus === 'scheduled')) {
+      const rawTime = t.startTime || t.matchTime || (t as any).start_time || (t as any).match_time;
+      if (isMatchLiveBySchedule(rawTime, t.matchDate, (t as any).time)) {
+        tStatus = 'live';
+      }
+    }
 
     let matchesStatus = false;
     if (filterStatus === 'all') {
@@ -913,14 +1361,16 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       const timeB = new Date(b.completedAt || (b as any).completed_at || (b as any).finishedAt || b.updatedAt || b.createdAt || b.startTime || 0).getTime();
       return timeB - timeA; // Newest completedAt first
     }
-    const timeA = new Date(a.startTime || a.createdAt || 0).getTime();
-    const timeB = new Date(b.startTime || b.createdAt || 0).getTime();
-    return timeA - timeB;
+    const rawTimeA = a.startTime || a.matchTime || (a as any).start_time || (a as any).match_time;
+    const rawTimeB = b.startTime || b.matchTime || (b as any).start_time || (b as any).match_time;
+    const timeA = parseMatchStartTimeMs(rawTimeA, a.matchDate || (a as any).match_date) || new Date(a.createdAt || 0).getTime();
+    const timeB = parseMatchStartTimeMs(rawTimeB, b.matchDate || (b as any).match_date) || new Date(b.createdAt || 0).getTime();
+    return timeB - timeA; // Latest timing match at top
   });
 
 
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeCategories = categoryOptions;
     let selectedCatObj = activeCategories.find(c => 
@@ -972,81 +1422,90 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
     console.log('[DEBUG TRACE 2] Tournament model before save gameCategory:', gameChoice);
 
     if (editingTournament) {
-      onUpdateTournament({
-        ...editingTournament,
-        title: (formTitle || 'UNTITLED MATCH').toUpperCase(),
-        game: gameChoice,
-        gameCategory: gameChoice,
-        game_category: gameChoice,
-        category: matchCategoryName as any,
-        matchCategory: matchCategoryName,
-        categoryId: catId,
-        bannerUrl: finalBannerUrl,
-        savedImageId: finalSavedImageId,
-        matchType: finalFormat as MatchType,
-        map: selectedMap as MapType,
-        entryFee: Number(formEntryFee || 0),
-        prizePool: Number(formPrizePool || 0),
-        perKillReward: pkr,
-        perKillPrize: pkr,
-        startTime: selectedStartTime,
-        match_time: selectedStartTime,
-        matchSchedule: selectedStartTime,
-        schedule: selectedStartTime,
-        matchDate: dtInfo.matchDate,
-        match_date: dtInfo.matchDate,
-        dayOfWeek: dtInfo.dayOfWeek,
-        formattedTime: dtInfo.formattedTime,
-        maxSlots: Number(formMaxSlots || (gameChoice === 'BGMI' ? 100 : 48)),
-        requireAccessCode: finalRequireAccessCode,
-        requiresAccessCode: finalRequireAccessCode,
-        requires_access_code: finalRequireAccessCode,
-        require_access_code: finalRequireAccessCode,
-        accessCode: finalAccessCode,
-        access_code: finalAccessCode,
-        rules: formRules,
-        prizeDistribution: finalPrizeDist
-      });
-      setEditingTournament(null);
+      try {
+        await onUpdateTournament({
+          ...editingTournament,
+          title: (formTitle || 'UNTITLED MATCH').toUpperCase(),
+          game: gameChoice,
+          gameCategory: gameChoice,
+          game_category: gameChoice,
+          category: matchCategoryName as any,
+          matchCategory: matchCategoryName,
+          categoryId: catId,
+          bannerUrl: finalBannerUrl,
+          savedImageId: finalSavedImageId,
+          matchType: finalFormat as MatchType,
+          map: selectedMap as MapType,
+          entryFee: Number(formEntryFee || 0),
+          prizePool: Number(formPrizePool || 0),
+          perKillReward: pkr,
+          perKillPrize: pkr,
+          startTime: selectedStartTime,
+          match_time: selectedStartTime,
+          matchSchedule: selectedStartTime,
+          schedule: selectedStartTime,
+          matchDate: dtInfo.matchDate,
+          match_date: dtInfo.matchDate,
+          dayOfWeek: dtInfo.dayOfWeek,
+          formattedTime: dtInfo.formattedTime,
+          maxSlots: Number(formMaxSlots || (gameChoice === 'BGMI' ? 100 : 48)),
+          requireAccessCode: finalRequireAccessCode,
+          requiresAccessCode: finalRequireAccessCode,
+          requires_access_code: finalRequireAccessCode,
+          require_access_code: finalRequireAccessCode,
+          accessCode: finalAccessCode,
+          access_code: finalAccessCode,
+          rules: formRules,
+          prizeDistribution: finalPrizeDist
+        });
+        setEditingTournament(null);
+        setShowCreateModal(false);
+      } catch (updateErr) {
+        console.error('[Tournament Edit Failed]:', updateErr);
+      }
     } else {
-      onCreateTournament({
-        title: (formTitle || 'NEW MATCH').toUpperCase(),
-        game: gameChoice,
-        gameCategory: gameChoice,
-        game_category: gameChoice,
-        category: matchCategoryName as any,
-        matchCategory: matchCategoryName,
-        categoryId: catId,
-        bannerUrl: finalBannerUrl,
-        savedImageId: finalSavedImageId,
-        matchType: finalFormat as MatchType,
-        map: selectedMap as MapType,
-        entryFee: Number(formEntryFee || 0),
-        prizePool: Number(formPrizePool || 0),
-        perKillReward: pkr,
-        perKillPrize: pkr,
-        startTime: selectedStartTime,
-        match_time: selectedStartTime,
-        matchSchedule: selectedStartTime,
-        schedule: selectedStartTime,
-        matchDate: dtInfo.matchDate,
-        match_date: dtInfo.matchDate,
-        dayOfWeek: dtInfo.dayOfWeek,
-        formattedTime: dtInfo.formattedTime,
-        maxSlots: Number(formMaxSlots || (gameChoice === 'BGMI' ? 100 : 48)),
-        requireAccessCode: finalRequireAccessCode,
-        requiresAccessCode: finalRequireAccessCode,
-        requires_access_code: finalRequireAccessCode,
-        require_access_code: finalRequireAccessCode,
-        accessCode: finalAccessCode,
-        access_code: finalAccessCode,
-        status: 'upcoming',
-        isRoomReleased: false,
-        rules: formRules,
-        prizeDistribution: finalPrizeDist
-      });
+      try {
+        await onCreateTournament({
+          title: (formTitle || 'NEW MATCH').toUpperCase(),
+          game: gameChoice,
+          gameCategory: gameChoice,
+          game_category: gameChoice,
+          category: matchCategoryName as any,
+          matchCategory: matchCategoryName,
+          categoryId: catId,
+          bannerUrl: finalBannerUrl,
+          savedImageId: finalSavedImageId,
+          matchType: finalFormat as MatchType,
+          map: selectedMap as MapType,
+          entryFee: Number(formEntryFee || 0),
+          prizePool: Number(formPrizePool || 0),
+          perKillReward: pkr,
+          perKillPrize: pkr,
+          startTime: selectedStartTime,
+          match_time: selectedStartTime,
+          matchSchedule: selectedStartTime,
+          schedule: selectedStartTime,
+          matchDate: dtInfo.matchDate,
+          match_date: dtInfo.matchDate,
+          dayOfWeek: dtInfo.dayOfWeek,
+          formattedTime: dtInfo.formattedTime,
+          maxSlots: Number(formMaxSlots || (gameChoice === 'BGMI' ? 100 : 48)),
+          requireAccessCode: finalRequireAccessCode,
+          requiresAccessCode: finalRequireAccessCode,
+          requires_access_code: finalRequireAccessCode,
+          require_access_code: finalRequireAccessCode,
+          accessCode: finalAccessCode,
+          access_code: finalAccessCode,
+          status: 'upcoming',
+          isRoomReleased: false,
+          rules: formRules,
+          prizeDistribution: finalPrizeDist
+        });
+        setShowCreateModal(false);
+      } catch (createErr) {
+        console.error('[Tournament Creation Failed - Modal kept open for retry]:', createErr);
+      }
     }
-    setShowCreateModal(false);
   };
 
   const handleOpenEditModal = (match: Tournament) => {
@@ -1168,16 +1627,23 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
     const now = new Date();
     const diffMs = start.getTime() - now.getTime();
     
-    // Format actual date/time: e.g. "03 Aug, 09:00 PM"
+    // Format actual date/time: e.g. "03 Aug, 9:00 PM"
     let dateStr = '';
     try {
-      dateStr = start.toLocaleString('en-IN', {
+      const datePart = new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
         day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
+        month: 'short'
+      }).format(start);
+
+      const timePart = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        hour: 'numeric',
         minute: '2-digit',
         hour12: true
-      });
+      }).format(start);
+
+      dateStr = `${datePart}, ${timePart}`;
     } catch (e) {
       dateStr = startTimeStr;
     }
@@ -1305,6 +1771,138 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
       {/* Filter Section: CATEGORY, GAME & MODE (Clearly separated) - Only visible if not on Rules Presets tab */}
       {filterStatus !== 'rules' && (
         <div className="space-y-2 pb-1 pt-0.5">
+          {/* Match Search & View Switcher Toolbar */}
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 pb-1">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#777278]" />
+              <input
+                type="text"
+                value={matchSearchQuery}
+                onChange={(e) => setMatchSearchQuery(e.target.value)}
+                placeholder="Search by Match ID (e.g. WX7-1309-001) or title..."
+                className="w-full bg-[#141215] text-white text-xs pl-8 pr-7 py-2 rounded-xl border border-[#29252A] focus:outline-none focus:border-[#C9A34E] placeholder:text-[#777278] transition shadow-inner"
+              />
+              {matchSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setMatchSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#777278] hover:text-white text-xs font-bold"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            
+            {/* View Mode Switcher & Image Density Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {/* View Selector Segmented Control */}
+              <div className="flex items-center gap-1 bg-[#141215] p-1 rounded-xl border border-[#29252A]">
+                <button
+                  type="button"
+                  onClick={() => setDisplayView('compact')}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-black uppercase tracking-wider transition flex items-center gap-1.5 ${
+                    displayView === 'compact'
+                      ? 'bg-[#C9A34E] text-black shadow-sm font-black'
+                      : 'text-[#B0ACB0] hover:text-white'
+                  }`}
+                  title="Compact Admin Cards (Scannable, Collapsible Lists)"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Compact Cards</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisplayView('table')}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-black uppercase tracking-wider transition flex items-center gap-1.5 ${
+                    displayView === 'table'
+                      ? 'bg-[#C9A34E] text-black shadow-sm font-black'
+                      : 'text-[#B0ACB0] hover:text-white'
+                  }`}
+                  title="Admin Data Table (High-Density B2B List)"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Admin Table</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisplayView('cards')}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10.5px] font-black uppercase tracking-wider transition flex items-center gap-1.5 ${
+                    displayView === 'cards'
+                      ? 'bg-[#C9A34E] text-black shadow-sm font-black'
+                      : 'text-[#B0ACB0] hover:text-white'
+                  }`}
+                  title="Hero Artwork Grid"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Hero Cards</span>
+                </button>
+              </div>
+
+              {/* Image Mode Selector (only when in compact view) */}
+              {displayView === 'compact' && (
+                <div className="flex items-center gap-1 bg-[#141215] p-1 rounded-xl border border-[#29252A]">
+                  <span className="text-[9px] font-black text-[#777278] uppercase px-1 hidden md:inline">IMAGE:</span>
+                  <button
+                    type="button"
+                    onClick={() => setCompactImageMode('side')}
+                    className={`px-2 py-1 rounded text-[9.5px] font-bold transition ${
+                      compactImageMode === 'side' ? 'bg-[#29252A] text-white font-black' : 'text-[#777278] hover:text-[#B0ACB0]'
+                    }`}
+                    title="Side Thumbnail Image"
+                  >
+                    Thumbnail
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompactImageMode('banner')}
+                    className={`px-2 py-1 rounded text-[9.5px] font-bold transition ${
+                      compactImageMode === 'banner' ? 'bg-[#29252A] text-white font-black' : 'text-[#777278] hover:text-[#B0ACB0]'
+                    }`}
+                    title="Header Banner"
+                  >
+                    Banner
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCompactImageMode('none')}
+                    className={`px-2 py-1 rounded text-[9.5px] font-bold transition ${
+                      compactImageMode === 'none' ? 'bg-[#29252A] text-white font-black' : 'text-[#777278] hover:text-[#B0ACB0]'
+                    }`}
+                    title="Hide Images for Max Density"
+                  >
+                    No Image
+                  </button>
+                </div>
+              )}
+
+              {matchSearchQuery && (
+                <div className="text-[11px] text-[#B0ACB0] flex items-center gap-1.5">
+                  <span>Showing: <strong className="text-amber-400 font-bold">{filteredTournaments.length}</strong></span>
+                  <button
+                    type="button"
+                    onClick={() => setMatchSearchQuery('')}
+                    className="text-xs text-amber-400/80 hover:text-amber-300 underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#171418] hover:bg-[#201C22] text-xs text-[#B0ACB0] hover:text-white border border-[#29252A] rounded-xl font-bold transition shadow-sm"
+                  title="Refresh matches from Supabase"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Row 1: MATCH CATEGORY Filter Pills */}
           <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
             <span className="text-[10px] font-black uppercase text-[#C9A34E] shrink-0 tracking-wider">CATEGORY:</span>
@@ -1544,821 +2142,920 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
           </div>
         </div>
       ) : (
-        /* Tournaments Match List (Replicating user image layout exactly) */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {tournaments.length === 0 ? (
-          <div className="col-span-full p-12 text-center bg-[#171418] rounded-2xl border border-[#29252A]/30 text-[#777278] text-xs">
+        /* Tournaments Match List - Multi-Mode Admin View (Compact Cards / Data Table / Hero Artwork Grid) */
+        tournaments.length === 0 ? (
+          <div className="p-12 text-center bg-[#171418] rounded-2xl border border-[#29252A]/30 text-[#777278] text-xs">
             No tournaments available. Create your first tournament.
           </div>
         ) : filteredTournaments.length === 0 ? (
-          <div className="col-span-full p-12 text-center bg-[#171418] rounded-2xl border border-[#29252A]/30 text-[#777278] text-xs">
-            No tournament matches found in the selected category.
+          <div className="p-12 text-center bg-[#171418] rounded-2xl border border-[#29252A]/30 text-[#777278] text-xs">
+            No tournament matches found in the selected category or filter.
+          </div>
+        ) : displayView === 'table' ? (
+          /* High-Density Admin Data Table Mode */
+          <div className="overflow-x-auto rounded-2xl border border-[#29252A] bg-[#141215] shadow-xl">
+            <table className="w-full text-left border-collapse font-sans text-xs">
+              <thead>
+                <tr className="bg-[#171418] border-b border-[#29252A] text-[#777278] text-[10px] font-black uppercase tracking-wider">
+                  <th className="p-3 pl-4">Match ID & Title</th>
+                  <th className="p-3">Game / Format</th>
+                  <th className="p-3">Schedule & Map</th>
+                  <th className="p-3">Entry & Prize</th>
+                  <th className="p-3">Slots Joined</th>
+                  <th className="p-3">Credentials</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3 pr-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#29252A]/30 text-[#F5F5F5]">
+                {filteredTournaments.map((match) => {
+                  const displayMatchId = normalizePublicMatchId(match.matchId || (match as any).match_id) || match.matchId || (match as any).match_id;
+                  const isCopied = copiedText === displayMatchId;
+                  const isMatchBgmi = 
+                    (match.game || '').toUpperCase() === 'BGMI' || 
+                    (match.game || '').toUpperCase().includes('BATTLEGROUND') || 
+                    (match.game || '').toUpperCase() === 'PUBG' ||
+                    (match.title || '').toUpperCase().includes('BGMI') ||
+                    (match.category || '').toUpperCase() === 'BGMI' ||
+                    ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK'].includes((match.map || '').toUpperCase());
+                  const gameName = isMatchBgmi ? 'BGMI' : (match.game || 'FREE FIRE');
+                  const modeName = (match.matchType && match.matchType.toUpperCase() !== 'FREE FIRE' && match.matchType.toUpperCase() !== 'BGMI')
+                    ? match.matchType
+                    : ((match as any).mode || 'Solo');
+                  const mapName = match.map || (isMatchBgmi ? 'Erangel' : 'Bermuda');
+                  const totalSlots = match.maxSlots || (isMatchBgmi ? 100 : 48);
+                  const slotsRemaining = Math.max(0, totalSlots - (match.filledSlots || 0));
+                  const percentFilled = Math.min(100, Math.max(0, (match.filledSlots / (totalSlots || 1)) * 100));
+
+                  const s = (match.status || '').toLowerCase();
+                  const isCompleted = s === 'finished' || s === 'completed' || (match as any).results_published || Boolean((match as any).completedAt || (match as any).completed_at);
+                  const isCancelled = s === 'cancelled';
+                  const rawTime = match.startTime || match.matchTime || (match as any).start_time || (match as any).match_time;
+                  const isLiveScheduled = isMatchLiveBySchedule(rawTime, match.matchDate, (match as any).time);
+                  const effectiveStatus = isCompleted ? 'completed' : isCancelled ? 'cancelled' : (s === 'live' || isLiveScheduled) ? 'live' : 'upcoming';
+
+                  return (
+                    <React.Fragment key={match.id}>
+                      <tr className="hover:bg-[#1A171D] transition-colors group">
+                        {/* Match ID & Title */}
+                        <td className="p-3 pl-4">
+                          <div className="flex flex-col gap-0.5 max-w-xs">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded tracking-wider select-all shrink-0">
+                                {displayMatchId || 'N/A'}
+                              </span>
+                              {displayMatchId && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyValue(displayMatchId)}
+                                  className="text-[#777278] hover:text-amber-300 p-0.5 transition"
+                                  title="Copy Match ID"
+                                >
+                                  {isCopied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                                </button>
+                              )}
+                            </div>
+                            <span className="font-extrabold text-white text-xs truncate uppercase mt-0.5" title={match.title}>
+                              {match.title}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Game / Format */}
+                        <td className="p-3 whitespace-nowrap">
+                          <div className="flex flex-col gap-0.5">
+                            <span className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider inline-block w-fit ${
+                              isMatchBgmi ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-[#FF3048]/15 text-[#FF3048] border border-[#FF3048]/30'
+                            }`}>
+                              {gameName}
+                            </span>
+                            <span className="text-[#B0ACB0] font-extrabold text-[11px] uppercase">
+                              {modeName}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Schedule & Map */}
+                        <td className="p-3 whitespace-nowrap">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[#00FFB2] font-bold text-[11px]">
+                              {formatStartTime(match.startTime)}
+                            </span>
+                            <span className="text-[#777278] font-semibold text-[10px] uppercase">
+                              Map: {mapName}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Entry & Prize */}
+                        <td className="p-3 whitespace-nowrap font-mono tabular-nums">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[#FF3E6C] font-black text-xs">
+                              ₹{match.prizePool} PRIZE
+                            </span>
+                            <span className="text-[#C9A34E] font-bold text-[10.5px]">
+                              ₹{match.entryFee} ENTRY
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Slots Joined */}
+                        <td className="p-3 whitespace-nowrap min-w-[110px]">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between text-[10px] font-black">
+                              <span className="text-[#00FFB2]">{match.filledSlots}/{totalSlots}</span>
+                              <span className="text-[#777278]">{slotsRemaining} left</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-[#0D0B0D] rounded-full overflow-hidden border border-[#29252A]/40">
+                              <div
+                                className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full"
+                                style={{ width: `${percentFilled}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Credentials */}
+                        <td className="p-3 whitespace-nowrap">
+                          {match.isRoomReleased ? (
+                            <span className="px-2 py-0.5 rounded text-[9.5px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 flex items-center gap-1 w-fit">
+                              <Key className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Released</span>
+                            </span>
+                          ) : (
+                            <span className="text-[#777278] text-[10px] italic">Not Dispatched</span>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="p-3 whitespace-nowrap">
+                          <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg border inline-block ${
+                            effectiveStatus === 'live'
+                              ? 'bg-rose-950/80 text-rose-400 border-[#350A12] animate-pulse'
+                              : effectiveStatus === 'upcoming'
+                              ? 'bg-[#1B181C]/60 text-[#B590FF] border-[#B590FF]/30'
+                              : effectiveStatus === 'completed'
+                              ? 'bg-[#350A12]/80 text-[#C9A34E] border-emerald-500/40'
+                              : 'bg-red-950/80 text-red-300 border-red-800/40'
+                          }`}>
+                            {effectiveStatus.toUpperCase()}
+                          </span>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="p-3 pr-4 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Details modal trigger */}
+                            <button
+                              type="button"
+                              onClick={() => setDetailsModalTournament(match)}
+                              className="p-1.5 rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] transition"
+                              title="View Match Details & Players"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-[#C9A34E]" />
+                            </button>
+
+                            {/* Release Room */}
+                            {effectiveStatus !== 'completed' && effectiveStatus !== 'cancelled' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (activeReleaseRoomId === match.id) setActiveReleaseRoomId(null);
+                                  else {
+                                    setActiveReleaseRoomId(match.id);
+                                    setInputRoomId(match.roomId || '');
+                                    setInputRoomPass(match.roomPassword || '');
+                                    setActivePublishWinnersId(null);
+                                  }
+                                }}
+                                className="p-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-400 text-amber-300 hover:text-black border border-amber-500/30 transition text-[10px] font-bold"
+                                title="Release Room Credentials"
+                              >
+                                <Key className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Winners */}
+                            {effectiveStatus === 'completed' ? (
+                              <button
+                                type="button"
+                                onClick={() => setResultsListModalTournament(match)}
+                                className="p-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-500/40 transition text-[10px] font-bold"
+                                title="Result Out List"
+                              >
+                                <Trophy className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (activePublishWinnersId === match.id) setActivePublishWinnersId(null);
+                                  else {
+                                    setActivePublishWinnersId(match.id);
+                                    const initMap = new Map<string, any>();
+                                    (match.participants || []).forEach((p, idx) => {
+                                      const details = resolveParticipantDetails(p, users, match);
+                                      const pUserId = details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || '');
+                                      const gameUid = details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || pUserId);
+                                      const key = gameUid && gameUid !== 'N/A' ? gameUid : (pUserId || `idx_${idx}`);
+
+                                      const suggestedRank = Number(p.rank ?? (p as any).playerRank ?? (p as any).player_rank ?? (p as any).position ?? (p as any).resultRank ?? (p as any).result_rank ?? (idx + 1));
+                                      const kills = Number(p.kills ?? (p as any).kill ?? (p as any).killCount ?? (p as any).kill_count ?? (p as any).playerKills ?? (p as any).player_kills ?? (p as any).totalKills ?? (p as any).total_kills ?? 0);
+                                      const rankPrize = getPrizeForRank(suggestedRank, match.prizeDistribution || []);
+                                      const effectiveRankPrize = rankPrize > 0 ? rankPrize : (suggestedRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
+                                      const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
+                                      const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
+                                      
+                                      const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
+                                      const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
+                                      const prizeWon = existingPrizeNum > 0 ? existingPrizeNum : (effectiveRankPrize + (kills * perKillReward));
+
+                                      const entry = {
+                                        ...p,
+                                        slotNumber: slotNo,
+                                        userId: pUserId,
+                                        email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
+                                        inGameId: gameUid,
+                                        inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
+                                        username: details.username || 'Player',
+                                        rank: suggestedRank,
+                                        kills,
+                                        prizeWon
+                                      };
+
+                                      if (!initMap.has(key)) {
+                                        initMap.set(key, entry);
+                                      } else {
+                                        const existing = initMap.get(key);
+                                        if (kills > Number(existing.kills || 0) || prizeWon > Number(existing.prizeWon || 0)) {
+                                          initMap.set(key, entry);
+                                        }
+                                      }
+                                    });
+                                    setParticipantResults(Array.from(initMap.values()));
+                                    setActiveReleaseRoomId(null);
+                                  }
+                                }}
+                                className="p-1.5 rounded-lg bg-[#1B181C] hover:bg-[#C9A34E] text-[#C9A34E] hover:text-black border border-[#C9A34E]/30 transition text-[10px] font-bold"
+                                title="Publish Winners"
+                              >
+                                <Award className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Edit */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(match)}
+                              className="p-1.5 rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] transition"
+                              title="Edit Match"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-[#C9A34E]" />
+                            </button>
+
+                            {/* Duplicate */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDuplicateModal(match)}
+                              className="p-1.5 rounded-lg bg-[#1B181C] hover:bg-[#29252A] text-[#B0ACB0] hover:text-white border border-[#29252A] transition"
+                              title="Duplicate Match"
+                            >
+                              <Copy className="w-3.5 h-3.5 text-[#C9A34E]" />
+                            </button>
+
+                            {/* Danger Zone */}
+                            <button
+                              type="button"
+                              onClick={() => setExpandedDangerZoneId(expandedDangerZoneId === match.id ? null : match.id)}
+                              className={`p-1.5 rounded-lg border transition ${
+                                expandedDangerZoneId === match.id ? 'bg-rose-950 text-rose-300 border-rose-600' : 'bg-[#141215] text-[#777278] hover:text-rose-300 border-[#29252A]'
+                              }`}
+                              title="Danger Zone (Delete / Cancel)"
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Expanded Row for Table View Forms */}
+                      {(activeReleaseRoomId === match.id || activePublishWinnersId === match.id || expandedDangerZoneId === match.id) && (
+                        <tr className="bg-[#0D0B0D]">
+                          <td colSpan={8} className="p-4 border-b border-[#29252A]">
+                            {activeReleaseRoomId === match.id && (
+                              <div className="p-3 rounded-xl bg-[#141215] border border-[#29252A] space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="text-xs font-black text-[#C9A34E] flex items-center gap-1.5">
+                                    <Key className="w-3.5 h-3.5 text-[#C9A34E]" /> Dispatch Game Room Credentials
+                                  </h4>
+                                  <button onClick={() => setActiveReleaseRoomId(null)} className="text-[#777278] hover:text-white">
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <input
+                                    type="text"
+                                    value={inputRoomId}
+                                    onChange={(e) => setInputRoomId(e.target.value)}
+                                    placeholder="Room ID (e.g. 894021)"
+                                    className="bg-[#0D0B0D] text-white text-xs font-mono p-2 rounded-lg border border-[#29252A]"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={inputRoomPass}
+                                    onChange={(e) => setInputRoomPass(e.target.value)}
+                                    placeholder="Room Password (e.g. WINX7)"
+                                    className="bg-[#0D0B0D] text-white text-xs font-mono p-2 rounded-lg border border-[#29252A]"
+                                  />
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                  <button onClick={() => setActiveReleaseRoomId(null)} className="text-xs text-[#B0ACB0]">Cancel</button>
+                                  <button
+                                    onClick={() => {
+                                      if (inputRoomId && inputRoomPass) {
+                                        onReleaseRoomCredentials(match.id, inputRoomId, inputRoomPass);
+                                        setActiveReleaseRoomId(null);
+                                      }
+                                    }}
+                                    className="px-3 py-1 bg-[#C9A34E] text-black font-extrabold text-xs rounded-lg"
+                                  >
+                                    Release
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {activePublishWinnersId === match.id && (
+                              <TournamentResultFormPanel
+                                match={match}
+                                users={users}
+                                currentUser={currentUser as any}
+                                onSubmitResultForVerification={onSubmitResultForVerification}
+                                onPublishMatchResults={onPublishMatchResults}
+                                onClose={() => setActivePublishWinnersId(null)}
+                              />
+                            )}
+
+                            {expandedDangerZoneId === match.id && (
+                              <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/50 flex items-center justify-between gap-3">
+                                <span className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                                  <AlertTriangle className="w-4 h-4 text-rose-400" /> Danger Zone Actions
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  {onCancelMatchAndRefund && (match.status !== 'completed' && match.status !== 'finished' && match.status !== 'cancelled') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setCancellingTournament(match)}
+                                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-extrabold"
+                                    >
+                                      Cancel Match & Refund
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingTournament(match)}
+                                    className="px-3 py-1.5 bg-rose-700 hover:bg-rose-600 text-white rounded-lg text-xs font-extrabold"
+                                  >
+                                    Delete Match
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : (
-          filteredTournaments.map((match) => (
-            <div
-              key={match.id}
-              className="bg-[#141215] border border-[#29252A]/30 rounded-2xl p-4 transition-all shadow-md flex flex-col gap-3 hover:border-[#29252A]"
-            >
-              
-              {/* Card Top: Title and status badge */}
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="font-extrabold text-white text-xs tracking-wide truncate max-w-[70%] uppercase">
-                  {match.title}
-                </h3>
-                <span
-                  className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg border ${
-                    match.status === 'live'
-                      ? 'bg-rose-950/80 text-rose-400 border-[#350A12] animate-pulse'
-                      : match.status === 'upcoming'
-                      ? 'bg-[#1B181C]/60 text-[#B590FF] border-[#B590FF]/30'
-                      : ((match.status || '').toLowerCase() === 'finished' || (match.status || '').toLowerCase() === 'completed' || (match as any).results_published)
-                      ? 'bg-[#350A12]/80 text-[#C9A34E] border-emerald-500/40'
-                      : match.status === 'cancelled'
-                      ? 'bg-red-950/80 text-red-300 border-red-800/40'
-                      : 'bg-gray-950 text-gray-400 border-gray-800'
-                  }`}
+          /* Cards Grid Mode (Compact Cards or Hero Cards) */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredTournaments.map((match) => {
+              const displayMatchId = normalizePublicMatchId(match.matchId || (match as any).match_id) || match.matchId || (match as any).match_id;
+              const isCopied = copiedText === displayMatchId;
+              const isMatchBgmi = 
+                (match.game || '').toUpperCase() === 'BGMI' || 
+                (match.game || '').toUpperCase().includes('BATTLEGROUND') || 
+                (match.game || '').toUpperCase() === 'PUBG' ||
+                (match.title || '').toUpperCase().includes('BGMI') ||
+                (match.category || '').toUpperCase() === 'BGMI' ||
+                ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK'].includes((match.map || '').toUpperCase());
+              const gameName = isMatchBgmi ? 'BGMI' : (match.game || 'FREE FIRE');
+              const modeName = (match.matchType && match.matchType.toUpperCase() !== 'FREE FIRE' && match.matchType.toUpperCase() !== 'BGMI')
+                ? match.matchType
+                : ((match as any).mode || 'Solo');
+              const mapName = match.map || (isMatchBgmi ? 'Erangel' : 'Bermuda');
+              const totalSlots = match.maxSlots || (isMatchBgmi ? 100 : 48);
+              const slotsRemaining = Math.max(0, totalSlots - (match.filledSlots || 0));
+              const percentFilled = Math.min(100, Math.max(0, (match.filledSlots / (totalSlots || 1)) * 100));
+
+              const s = (match.status || '').toLowerCase();
+              const isCompleted = s === 'finished' || s === 'completed' || (match as any).results_published || Boolean((match as any).completedAt || (match as any).completed_at);
+              const isCancelled = s === 'cancelled';
+              const rawTime = match.startTime || match.matchTime || (match as any).start_time || (match as any).match_time;
+              const isLiveScheduled = isMatchLiveBySchedule(rawTime, match.matchDate, (match as any).time);
+              const effectiveStatus = isCompleted ? 'completed' : isCancelled ? 'cancelled' : (s === 'live' || isLiveScheduled) ? 'live' : 'upcoming';
+              const imgUrl = getMatchBannerImage(match, banners, categories);
+
+              const isPlayersExpanded = expandedAccordions[match.id]?.players;
+              const isPrizesExpanded = expandedAccordions[match.id]?.prizes;
+
+              return (
+                <div
+                  key={match.id}
+                  className="bg-[#141215] border border-[#29252A]/40 rounded-2xl p-3.5 transition-all shadow-md flex flex-col gap-2.5 hover:border-[#29252A]"
                 >
-                  {((match.status || '').toLowerCase() === 'finished' || (match.status || '').toLowerCase() === 'completed' || (match as any).results_published) ? 'COMPLETED' : (match.status || 'UPCOMING').toUpperCase()}
-                </span>
-              </div>
-
-              {/* Match Card Image / Banner (Exact 1.92:1 Aspect Ratio with ContentScale.Crop equivalent) */}
-              {(() => {
-                const imgUrl = getMatchBannerImage(match, banners, categories);
-                if (!imgUrl || imgUrl === 'N/A') return null;
-                return (
-                  <div
-                    className="relative w-full aspect-[1.92/1] rounded-xl overflow-hidden bg-black/60 border border-[#29252A] shadow-inner"
-                    style={{ aspectRatio: '1.92 / 1' }}
-                  >
-                    <img
-                      key={`${match.id}_${imgUrl}`}
-                      src={imgUrl}
-                      alt={match.title}
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => handleImageFallback(e, match.game || match.title)}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#141215] via-transparent to-transparent pointer-events-none" />
-                  </div>
-                );
-              })()}
-
-              {/* Match Details & Hierarchy: GAME -> MODE • MAP • SLOTS -> PRIZE & ENTRY -> SLOTS PROGRESS */}
-              {(() => {
-                const isMatchBgmi = 
-                  (match.game || '').toUpperCase() === 'BGMI' || 
-                  (match.game || '').toUpperCase().includes('BATTLEGROUND') || 
-                  (match.game || '').toUpperCase() === 'PUBG' ||
-                  (match.title || '').toUpperCase().includes('BGMI') ||
-                  (match.title || '').toUpperCase().includes('BATTLEGROUND') ||
-                  (match.title || '').toUpperCase().includes('PUBG') ||
-                  (match.category || '').toUpperCase() === 'BGMI' ||
-                  (match.matchCategory || '').toUpperCase() === 'BGMI' ||
-                  ((match as any).category_name || '').toUpperCase() === 'BGMI' ||
-                  ((match as any).game_name || '').toUpperCase() === 'BGMI' ||
-                  ['ERANGEL', 'MIRAMAR', 'SANHOK', 'VIKENDI', 'LIVIK', 'NUSA', 'KARAKIN'].includes((match.map || '').toUpperCase()) ||
-                  (match.matchType || '').toUpperCase().includes('TDM') ||
-                  (match.matchType || '').toUpperCase().includes('ULTIMATE ROYALE') ||
-                  Number(match.maxSlots) === 100;
-                const gameName = isMatchBgmi ? 'BGMI' : (match.game || 'FREE FIRE');
-                const modeName = (match.matchType && match.matchType.toUpperCase() !== 'FREE FIRE' && match.matchType.toUpperCase() !== 'BGMI')
-                  ? match.matchType
-                  : ((match as any).mode || 'Solo');
-                const mapName = match.map || (isMatchBgmi ? 'Erangel' : 'Bermuda');
-                const totalSlots = match.maxSlots || (isMatchBgmi ? 100 : 48);
-                const slotsRemaining = Math.max(0, totalSlots - (match.filledSlots || 0));
-
-                return (
-                  <div className="flex flex-col gap-2.5">
-                    {/* 1. GAME Identifier (Visually distinct game badge) & Match Start Time */}
-                    <div className="flex items-center justify-between gap-2">
+                  {/* Card Header Bar */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         {isMatchBgmi ? (
-                          <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm flex items-center gap-1">
-                            <Shield className="w-3 h-3 text-emerald-400 shrink-0" />
-                            <span>BGMI</span>
+                          <span className="px-2 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
+                            BGMI
                           </span>
                         ) : (
-                          <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-[#FF3048]/15 text-[#FF3048] border border-[#FF3048]/30 shadow-sm flex items-center gap-1">
-                            <Flame className="w-3 h-3 text-[#FF3048] shrink-0" />
-                            <span>{gameName}</span>
+                          <span className="px-2 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider bg-[#FF3048]/15 text-[#FF3048] border border-[#FF3048]/30 shrink-0">
+                            {gameName}
                           </span>
                         )}
+                        <h3 className="font-extrabold text-white text-xs tracking-wide truncate uppercase">
+                          {match.title}
+                        </h3>
                       </div>
-                      <div className="text-[#00FFB2] font-bold text-[10px] sm:text-[11px] flex items-center gap-1">
-                        <span>{formatStartTime(match.startTime)}</span>
-                      </div>
+
+                      {displayMatchId && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="font-mono text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.5 rounded tracking-wider select-all">
+                            {displayMatchId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyValue(displayMatchId);
+                            }}
+                            className={`p-1 rounded transition flex items-center gap-0.5 text-[10px] font-semibold ${
+                              isCopied
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'text-[#777278] hover:text-amber-300 hover:bg-white/5'
+                            }`}
+                            title="Copy Match ID"
+                          >
+                            {isCopied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
-                    {/* 2. MODE • MAP • SLOTS (Logical format hierarchy) */}
-                    <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-white">
-                      <span className="text-[#C9A34E]">{modeName}</span>
-                      <span className="text-[#777278] font-normal">•</span>
-                      <span className="text-[#B0ACB0]">{mapName}</span>
-                      <span className="text-[#777278] font-normal">•</span>
-                      <span className="text-[#777278] text-[11px] font-bold">{totalSlots} SLOTS</span>
-                    </div>
+                    <span
+                      className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg border shrink-0 ${
+                        effectiveStatus === 'live'
+                          ? 'bg-rose-950/80 text-rose-400 border-[#350A12] animate-pulse'
+                          : effectiveStatus === 'upcoming'
+                          ? 'bg-[#1B181C]/60 text-[#B590FF] border-[#B590FF]/30'
+                          : effectiveStatus === 'completed'
+                          ? 'bg-[#350A12]/80 text-[#C9A34E] border-emerald-500/40'
+                          : 'bg-red-950/80 text-red-300 border-red-800/40'
+                      }`}
+                    >
+                      {effectiveStatus.toUpperCase()}
+                    </span>
+                  </div>
 
-                    {/* 3. Prize Pool & Entry Fee */}
-                    <div className="flex items-baseline justify-between pt-1 border-t border-[#29252A]/40">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-[#C9A34E] font-extrabold text-[11px] sm:text-xs uppercase tracking-wide">
-                          Prize Pool
-                        </span>
-                        <span className="text-[#FF3E6C] font-black text-sm sm:text-base">
-                          ₹{match.prizePool}
-                        </span>
+                  {/* Card Image Rendering Strategy */}
+                  {displayView === 'cards' ? (
+                    /* Full Hero Aspect Ratio Image */
+                    imgUrl && imgUrl !== 'N/A' && (
+                      <div className="relative w-full aspect-[1.92/1] rounded-xl overflow-hidden bg-black/60 border border-[#29252A] shadow-inner">
+                        <img
+                          src={imgUrl}
+                          alt={match.title}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => handleImageFallback(e, match.game || match.title)}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#141215] via-transparent to-transparent pointer-events-none" />
                       </div>
-                      <div className="text-right">
-                        <span className="text-xs font-black text-[#C9A34E]">
-                          ₹{match.entryFee} ENTRY
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 4. Slots Remaining & Progress Bar */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px] font-extrabold uppercase tracking-wide">
-                        <span className="text-[#00FFB2]">
-                          {slotsRemaining} SLOTS LEFT
-                        </span>
-                        <span className="text-[#777278]">
-                          {match.filledSlots}/{totalSlots} JOINED
-                        </span>
-                      </div>
-                      <div className="w-full h-1 bg-[#0D0B0D]/60 rounded-full overflow-hidden border border-[#29252A]/20">
-                        <div
-                          className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full transition-all duration-300"
-                          style={{ width: `${isNaN(Number((match.filledSlots / (totalSlots || 1)) * 100)) ? 0 : Math.min(100, Math.max(0, (match.filledSlots / (totalSlots || 1)) * 100))}%` }}
+                    )
+                  ) : compactImageMode === 'side' && imgUrl && imgUrl !== 'N/A' ? (
+                    /* Compact Side Thumbnail Row */
+                    <div className="flex items-center gap-3 bg-[#171418] p-2 rounded-xl border border-[#29252A]/30">
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-black border border-[#29252A] shrink-0 relative shadow-sm">
+                        <img
+                          src={imgUrl}
+                          alt={match.title}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => handleImageFallback(e, match.game || match.title)}
                         />
                       </div>
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center justify-between text-[10.5px]">
+                          <span className="text-[#C9A34E] font-black uppercase">{modeName}</span>
+                          <span className="text-[#00FFB2] font-bold">{formatStartTime(match.startTime)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between text-xs">
+                          <span className="text-[#FF3E6C] font-black">₹{match.prizePool} PRIZE</span>
+                          <span className="text-[#C9A34E] font-extrabold text-[11px]">₹{match.entryFee} ENTRY</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[9.5px] text-[#777278] font-bold">
+                          <span>Map: {mapName}</span>
+                          <span className="text-[#00FFB2]">{match.filledSlots}/{totalSlots} SLOTS</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : compactImageMode === 'banner' && imgUrl && imgUrl !== 'N/A' ? (
+                    /* Compact Header Banner */
+                    <div className="relative w-full h-16 rounded-xl overflow-hidden bg-black/60 border border-[#29252A]">
+                      <img
+                        src={imgUrl}
+                        alt={match.title}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => handleImageFallback(e, match.game || match.title)}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent p-2 flex items-center justify-between">
+                        <span className="text-[#C9A34E] font-black text-xs uppercase">{modeName} • {mapName}</span>
+                        <span className="text-[#00FFB2] font-bold text-xs">{formatStartTime(match.startTime)}</span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Scannable Metrics Grid (If side thumbnail or image mode 'none' or 'cards') */}
+                  {(compactImageMode !== 'side' || displayView === 'cards') && (
+                    <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[#171418] border border-[#29252A]/30 text-xs">
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-[#777278] block">Schedule</span>
+                        <span className="text-[#00FFB2] font-bold text-[11px] truncate block">{formatStartTime(match.startTime)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[9px] uppercase font-bold text-[#777278] block">Format</span>
+                        <span className="text-white font-black text-[11px] uppercase truncate block">{modeName} • {mapName}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase font-bold text-[#777278] block">Prize Pool</span>
+                        <span className="text-[#FF3E6C] font-black text-xs block">₹{match.prizePool}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[9px] uppercase font-bold text-[#777278] block">Entry Fee</span>
+                        <span className="text-[#C9A34E] font-black text-xs block">₹{match.entryFee}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Slots Progress Bar */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px] font-black uppercase">
+                      <span className="text-[#00FFB2]">{slotsRemaining} SLOTS LEFT</span>
+                      <span className="text-[#777278]">{match.filledSlots}/{totalSlots} JOINED</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-[#0D0B0D] rounded-full overflow-hidden border border-[#29252A]/30">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full"
+                        style={{ width: `${percentFilled}%` }}
+                      />
                     </div>
                   </div>
-                );
-              })()}
 
-              {/* Collapsible Registered Players List */}
-              {match.participants && match.participants.length > 0 ? (
-                <div className="mt-2 p-3 rounded-xl bg-[#171418] border border-[#29252A]/30">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] uppercase font-black tracking-wider text-[#C9A34E] flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" />
-                      <span>Registered Players ({match.participants.length})</span>
-                    </span>
+                  {/* Collapsible Accordion Toggles (Registered Players & Prize Pool) */}
+                  <div className="flex items-center gap-2 pt-1 border-t border-[#29252A]/40">
+                    <button
+                      type="button"
+                      onClick={() => toggleAccordion(match.id, 'players')}
+                      className={`flex-1 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition flex items-center justify-between border ${
+                        isPlayersExpanded
+                          ? 'bg-[#29252A] text-amber-300 border-amber-500/40'
+                          : 'bg-[#171418] hover:bg-[#201C22] text-[#B0ACB0] border-[#29252A]/50'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3 h-3 text-[#C9A34E]" />
+                        <span>Players ({match.participants?.length || 0})</span>
+                      </span>
+                      <ChevronDown className={`w-3 h-3 transition-transform ${isPlayersExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleAccordion(match.id, 'prizes')}
+                      className={`flex-1 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition flex items-center justify-between border ${
+                        isPrizesExpanded
+                          ? 'bg-[#29252A] text-amber-300 border-amber-500/40'
+                          : 'bg-[#171418] hover:bg-[#201C22] text-[#B0ACB0] border-[#29252A]/50'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <Award className="w-3 h-3 text-[#C9A34E]" />
+                        <span>Prize Pool</span>
+                      </span>
+                      <ChevronDown className={`w-3 h-3 transition-transform ${isPrizesExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => setDetailsModalTournament(match)}
-                      className="px-2.5 py-1 text-[9px] uppercase font-black tracking-widest bg-amber-400 hover:bg-amber-300 text-black rounded-lg transition duration-200 flex items-center gap-1 active:scale-95"
+                      className="px-2 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-amber-400 hover:bg-amber-300 text-black transition flex items-center gap-1 shrink-0"
+                      title="View Full Details Modal"
                     >
                       <Eye className="w-3 h-3" />
-                      <span>Details</span>
+                      <span className="hidden sm:inline">Details</span>
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-36 overflow-y-auto custom-scrollbar pr-1">
-                    {match.participants.map((p, pIdx) => {
-                      const { gameIgn, username } = resolveParticipantDetails(p, users, match);
-                      const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (pIdx + 1);
-                      return (
-                        <div
-                          key={(p as any).userId || (p as any).uid || pIdx}
-                          className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-[#141215]/60 border border-[#29252A]/20 text-[10px]"
-                        >
-                          <div className="truncate pr-1">
-                            <span className="text-[#C9A34E] font-extrabold mr-1 font-mono">#{slotNo}</span>
-                            <span className="text-[#F5F5F5] font-bold truncate">{username}</span>
-                          </div>
-                          <span className="text-[#B0ACB0]/80 font-mono text-[9px] truncate max-w-[45%]" title={`IGN: ${gameIgn}`}>
-                            {gameIgn !== 'N/A' ? gameIgn : username}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-2 p-2.5 rounded-xl bg-[#171418]/40 border border-dashed border-[#29252A]/30 text-center text-[#777278]/80 text-[10px]">
-                  No players registered in slots yet. (0 / {match.maxSlots} filled)
-                </div>
-              )}
 
-              {/* Prize Distribution collapsible or inline display */}
-              {((match.prizeDistribution && match.prizeDistribution.length > 0) || (match.perKillReward !== undefined && match.perKillReward > 0)) && (
-                <div className="mt-2 p-3 rounded-xl bg-[#171418] border border-[#29252A]/35">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] uppercase font-black tracking-wider text-[#C9A34E] flex items-center gap-1.5">
-                      <Award className="w-3.5 h-3.5 text-[#C9A34E] animate-pulse" />
-                      <span>Prize Distribution</span>
-                    </span>
-                    <span className="text-[9px] text-[#777278] font-bold">Custom Ranks</span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-28 overflow-y-auto custom-scrollbar pr-1">
-                    {/* Display per kill reward badge if set and not explicitly in prizeDistribution array */}
-                    {match.perKillReward && match.perKillReward > 0 && !(match.prizeDistribution || []).some((p: any) => {
-                      const label = String(p.rankRange || p.rank_range || p.rankName || p.title || '').toLowerCase();
-                      return label.includes('kill');
-                    }) && (
-                      <div className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-[10px]">
-                        <span className="text-rose-300 font-extrabold truncate mr-1">Per Kill</span>
-                        <span className="text-[#C9A34E] font-black font-mono">₹{match.perKillReward}</span>
+                  {/* Expanded Registered Players Drawer */}
+                  {isPlayersExpanded && (
+                    <div className="p-2.5 rounded-xl bg-[#171418] border border-[#29252A]/40 space-y-1.5 animate-in slide-in-from-top-1">
+                      <div className="flex items-center justify-between text-[10px] font-black text-[#C9A34E]">
+                        <span>REGISTERED SLOTS ({match.participants?.length || 0})</span>
+                        <button onClick={() => setDetailsModalTournament(match)} className="underline text-[#00FFB2]">Full List</button>
                       </div>
-                    )}
-
-                    {(match.prizeDistribution || []).map((p: any, pIdx: number) => {
-                      const rankLabel = p.rankRange || p.rank_range || p.rankRangeLabel || p.rankName || p.rank_name || p.title || p.label || p.position || p.name || (p.rank ? `Rank ${p.rank}` : `Rank ${pIdx + 1}`);
-                      const prizeVal = p.prize ?? p.amount ?? p.winning ?? p.reward ?? 0;
-                      return (
-                        <div
-                          key={pIdx}
-                          className="flex items-center justify-between p-1.5 px-2 rounded-lg bg-[#0D0B0D]/80 border border-[#29252A]/15 text-[10px]"
-                        >
-                          <span className="text-[#B0ACB0] font-extrabold truncate mr-1">{rankLabel}</span>
-                          <span className="text-[#C9A34E] font-black font-mono">₹{prizeVal}</span>
+                      {match.participants && match.participants.length > 0 ? (
+                        <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto custom-scrollbar">
+                          {match.participants.map((p, pIdx) => {
+                            const { gameIgn, username } = resolveParticipantDetails(p, users, match);
+                            const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (pIdx + 1);
+                            return (
+                              <div key={pIdx} className="p-1 px-1.5 rounded bg-[#141215] border border-[#29252A]/20 text-[9.5px] flex items-center justify-between">
+                                <span className="font-mono text-[#C9A34E] font-bold">#{slotNo}</span>
+                                <span className="text-white font-bold truncate max-w-[70%]">{gameIgn !== 'N/A' ? gameIgn : username}</span>
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Match Access Code Badge - Displayed and manageable ONLY when Access Code is ON */}
-              {Boolean(
-                match.requiresAccessCode ||
-                (match as any).requires_access_code ||
-                match.requireAccessCode ||
-                (match as any).require_access_code ||
-                ((match.accessCode || (match as any).access_code) && String(match.accessCode || (match as any).access_code).trim().length > 0)
-              ) && (
-                <div className="bg-amber-950/30 border border-amber-900/40 p-2 rounded-xl flex items-center justify-between text-xs text-[#C9A34E] font-bold px-3">
-                  <span className="flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-[#C9A34E]" />
-                    <span>MATCH ACCESS CODE</span>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-amber-200 font-black tracking-wider bg-amber-900/40 px-2 py-0.5 rounded border border-amber-700/50">
-                      {match.accessCode || (match as any).access_code}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newCode = 'WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-                        onUpdateTournament({
-                          ...match,
-                          requireAccessCode: true,
-                          requiresAccessCode: true,
-                          requires_access_code: true,
-                          accessCode: newCode,
-                          access_code: newCode
-                        });
-                      }}
-                      className="px-2 py-0.5 bg-[#C9A34E]/20 hover:bg-[#C9A34E]/30 text-[#C9A34E] rounded text-[10px] font-bold border border-[#C9A34E]/30 transition cursor-pointer"
-                      title="Regenerate Access Code"
-                    >
-                      Regenerate
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Inline Room Credentials Info banner if active */}
-              {match.isRoomReleased && (
-                <div className="bg-[#350A12]/30 border border-emerald-900/40 p-2 rounded-xl flex items-center justify-between text-xs text-[#C9A34E] font-bold px-3">
-                  <span className="flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-[#C9A34E]" />
-                    <span>ROOM ID & PASS DISPATCHED</span>
-                  </span>
-                  <span className="font-mono text-[11px] text-[#B0ACB0]">
-                    ID: {match.roomId} | PASS: {match.roomPassword}
-                  </span>
-                </div>
-              )}
-
-              {/* Admin Action Bar (Primary actions: Status, Release Room, Winners, Edit, Duplicate, Danger Zone toggle) */}
-              <div className="border-t border-[#29252A]/50 pt-3 flex flex-wrap items-center justify-between gap-2.5 mt-0.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Quick Change Status Dropdown */}
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] uppercase font-bold text-[#777278]/80 hidden sm:inline">Status:</span>
-                    <select
-                      value={((match.status || '').toLowerCase() === 'finished' || (match.status || '').toLowerCase() === 'completed' || (match as any).results_published) ? 'completed' : match.status}
-                      onChange={(e) =>
-                        onUpdateTournament({
-                          ...match,
-                          status: e.target.value as MatchStatus
-                        })
-                      }
-                      className="bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-xl border border-[#29252A] focus:outline-none transition cursor-pointer"
-                    >
-                      <option value="upcoming">Upcoming</option>
-                      <option value="live">Live</option>
-                      <option value="completed" disabled>Completed</option>
-                      <option value="cancelled" disabled>Cancelled</option>
-                    </select>
-                  </div>
-
-                  {/* Release Room credentials trigger */}
-                  {((match.status || 'upcoming').toLowerCase() !== 'finished' && (match.status || 'upcoming').toLowerCase() !== 'completed' && !(match as any).results_published && (match.status || 'upcoming').toLowerCase() !== 'cancelled') && (
-                    <button
-                      onClick={() => {
-                        if (activeReleaseRoomId === match.id) {
-                          setActiveReleaseRoomId(null);
-                        } else {
-                          setActiveReleaseRoomId(match.id);
-                          setInputRoomId(match.roomId || '');
-                          setInputRoomPass(match.roomPassword || '');
-                          setActivePublishWinnersId(null);
-                        }
-                      }}
-                      className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 shadow-md cursor-pointer ${
-                        match.isRoomReleased
-                          ? 'bg-[#171418] text-[#C9A34E] border border-[#29252A]'
-                          : 'bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-500 text-black shadow-amber-500/10'
-                      }`}
-                    >
-                      <Key className="w-3.5 h-3.5" />
-                      <span>{match.isRoomReleased ? 'Dispatched' : 'Release Room'}</span>
-                    </button>
+                      ) : (
+                        <div className="text-center text-[10px] text-[#777278] py-2">No players registered yet.</div>
+                      )}
+                    </div>
                   )}
 
-                  {/* Publish winners / Result Out List trigger */}
-                  {((match.status || '').toLowerCase() === 'finished' || (match.status || '').toLowerCase() === 'completed' || (match as any).results_published) ? (
-                    <button
-                      type="button"
-                      onClick={() => setResultsListModalTournament(match)}
-                      className="px-3 py-1.5 rounded-xl text-[10.5px] font-black transition active:scale-95 flex items-center gap-1.5 border bg-gradient-to-r from-[#0d2a27] to-[#123834] text-[#C9A34E] border-emerald-500/50 hover:border-emerald-400 hover:text-emerald-200 shadow-lg shadow-emerald-950/40 cursor-pointer"
-                    >
-                      <Trophy className="w-4 h-4 text-[#C9A34E]" />
-                      <span>Result Out List</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (activePublishWinnersId === match.id) {
-                          setActivePublishWinnersId(null);
-                        } else {
-                          setActivePublishWinnersId(match.id);
-                          const initMap = new Map<string, any>();
-                          (match.participants || []).forEach((p, idx) => {
-                            const details = resolveParticipantDetails(p, users, match);
-                            const pUserId = details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || '');
-                            const gameUid = details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || pUserId);
-                            const key = gameUid && gameUid !== 'N/A' ? gameUid : (pUserId || `idx_${idx}`);
+                  {/* Expanded Prize Distribution Drawer */}
+                  {isPrizesExpanded && (
+                    <div className="p-2.5 rounded-xl bg-[#171418] border border-[#29252A]/40 space-y-1.5 animate-in slide-in-from-top-1">
+                      <span className="text-[10px] font-black text-[#C9A34E] uppercase block">Prize Ranks & Rewards</span>
+                      <div className="grid grid-cols-2 gap-1 max-h-28 overflow-y-auto custom-scrollbar">
+                        {match.perKillReward ? (
+                          <div className="p-1 px-1.5 rounded bg-rose-950/40 border border-rose-500/30 text-[9.5px] flex justify-between">
+                            <span className="text-rose-300 font-extrabold">Per Kill</span>
+                            <span className="text-[#C9A34E] font-black font-mono">₹{match.perKillReward}</span>
+                          </div>
+                        ) : null}
+                        {(match.prizeDistribution || []).map((p: any, pIdx: number) => (
+                          <div key={pIdx} className="p-1 px-1.5 rounded bg-[#0D0B0D] border border-[#29252A]/20 text-[9.5px] flex justify-between">
+                            <span className="text-[#B0ACB0] font-bold truncate">{p.rankRange || p.rankName || `Rank ${pIdx + 1}`}</span>
+                            <span className="text-[#C9A34E] font-black font-mono">₹{p.prize ?? p.amount ?? 0}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                            const suggestedRank = Number(p.rank ?? (p as any).playerRank ?? (p as any).player_rank ?? (p as any).position ?? (p as any).resultRank ?? (p as any).result_rank ?? (idx + 1));
-                            const kills = Number(p.kills ?? (p as any).kill ?? (p as any).killCount ?? (p as any).kill_count ?? (p as any).playerKills ?? (p as any).player_kills ?? (p as any).totalKills ?? (p as any).total_kills ?? 0);
-                            const rankPrize = getPrizeForRank(suggestedRank, match.prizeDistribution || []);
-                            const effectiveRankPrize = rankPrize > 0 ? rankPrize : (suggestedRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
-                            const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
-                            const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
-                            
-                            const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
-                            const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
-                            const prizeWon = existingPrizeNum > 0 ? existingPrizeNum : (effectiveRankPrize + (kills * perKillReward));
+                  {/* Room Credentials Status Badge (If released) */}
+                  {match.isRoomReleased && (
+                    <div className="bg-[#350A12]/30 border border-emerald-900/40 p-2 rounded-xl flex items-center justify-between text-[11px] text-[#C9A34E] font-bold px-2.5">
+                      <span className="flex items-center gap-1">
+                        <Key className="w-3 h-3 text-[#C9A34E]" />
+                        <span>Room Dispatched:</span>
+                      </span>
+                      <span className="font-mono text-[#B0ACB0] text-[10px]">ID: {match.roomId} | PASS: {match.roomPassword}</span>
+                    </div>
+                  )}
 
-                            const entry = {
-                              ...p,
-                              slotNumber: slotNo,
-                              userId: pUserId,
-                              email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
-                              inGameId: gameUid,
-                              inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
-                              username: details.username || 'Player',
-                              rank: suggestedRank,
-                              kills,
-                              prizeWon
-                            };
-
-                            if (!initMap.has(key)) {
-                              initMap.set(key, entry);
-                            } else {
-                              const existing = initMap.get(key);
-                              if (kills > Number(existing.kills || 0) || prizeWon > Number(existing.prizeWon || 0)) {
-                                initMap.set(key, entry);
-                              }
+                  {/* Admin Bottom Action Bar */}
+                  <div className="border-t border-[#29252A]/40 pt-2.5 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
+                    {/* Left Actions: Room / Winners */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {effectiveStatus !== 'completed' && effectiveStatus !== 'cancelled' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeReleaseRoomId === match.id) setActiveReleaseRoomId(null);
+                            else {
+                              setActiveReleaseRoomId(match.id);
+                              setInputRoomId(match.roomId || '');
+                              setInputRoomPass(match.roomPassword || '');
+                              setActivePublishWinnersId(null);
                             }
-                          });
-                          setParticipantResults(Array.from(initMap.values()));
-                          setActiveReleaseRoomId(null);
-                        }
-                      }}
-                      className="px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 border bg-[#141215] hover:bg-[#C9A34E] text-[#C9A34E] hover:text-black border-[#C9A34E]/40 shadow-md shadow-amber-950/25 cursor-pointer"
-                    >
-                      <Award className="w-3.5 h-3.5" />
-                      <span>Publish Winners</span>
-                    </button>
-                  )}
-                </div>
+                          }}
+                          className={`px-2.5 py-1 rounded-xl text-[10px] font-black transition active:scale-95 flex items-center gap-1 shadow-sm cursor-pointer ${
+                            match.isRoomReleased
+                              ? 'bg-[#171418] text-[#C9A34E] border border-[#29252A]'
+                              : 'bg-gradient-to-r from-amber-400 to-amber-500 text-black'
+                          }`}
+                        >
+                          <Key className="w-3 h-3" />
+                          <span>{match.isRoomReleased ? 'Credentials' : 'Release Room'}</span>
+                        </button>
+                      )}
 
-                {/* Primary Actions: Edit Match & Create Duplicate Match */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEditModal(match)}
-                    className="px-2.5 py-1.5 rounded-xl bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
-                    title="Edit Match Details"
-                  >
-                    <Edit3 className="w-3.5 h-3.5 text-[#C9A34E]" />
-                    <span>Edit</span>
-                  </button>
+                      {effectiveStatus === 'completed' ? (
+                        <button
+                          type="button"
+                          onClick={() => setResultsListModalTournament(match)}
+                          className="px-2.5 py-1 rounded-xl text-[10px] font-black transition flex items-center gap-1 border bg-gradient-to-r from-[#0d2a27] to-[#123834] text-[#C9A34E] border-emerald-500/50 cursor-pointer"
+                        >
+                          <Trophy className="w-3 h-3 text-[#C9A34E]" />
+                          <span>Results</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activePublishWinnersId === match.id) setActivePublishWinnersId(null);
+                            else {
+                              setActivePublishWinnersId(match.id);
+                              const initMap = new Map<string, any>();
+                              (match.participants || []).forEach((p, idx) => {
+                                const details = resolveParticipantDetails(p, users, match);
+                                const pUserId = details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || '');
+                                const gameUid = details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || pUserId);
+                                const key = gameUid && gameUid !== 'N/A' ? gameUid : (pUserId || `idx_${idx}`);
 
-                  <button
-                    type="button"
-                    onClick={() => handleOpenDuplicateModal(match)}
-                    className="px-2.5 py-1.5 rounded-xl bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition active:scale-95 flex items-center gap-1.5 text-[11px] font-bold cursor-pointer"
-                    title="Create Duplicate Match"
-                  >
-                    <Copy className="w-3.5 h-3.5 text-[#C9A34E]" />
-                    <span>Duplicate Match</span>
-                  </button>
+                                const suggestedRank = Number(p.rank ?? (p as any).playerRank ?? (p as any).player_rank ?? (p as any).position ?? (p as any).resultRank ?? (p as any).result_rank ?? (idx + 1));
+                                const kills = Number(p.kills ?? (p as any).kill ?? (p as any).killCount ?? (p as any).kill_count ?? (p as any).playerKills ?? (p as any).player_kills ?? (p as any).totalKills ?? (p as any).total_kills ?? 0);
+                                const rankPrize = getPrizeForRank(suggestedRank, match.prizeDistribution || []);
+                                const effectiveRankPrize = rankPrize > 0 ? rankPrize : (suggestedRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
+                                const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
+                                const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
+                                
+                                const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
+                                const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
+                                const prizeWon = existingPrizeNum > 0 ? existingPrizeNum : (effectiveRankPrize + (kills * perKillReward));
 
-                  {/* Danger Zone Dropdown Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setExpandedDangerZoneId(expandedDangerZoneId === match.id ? null : match.id)}
-                    className={`px-2 py-1.5 rounded-xl border transition active:scale-95 flex items-center gap-1 text-[10px] font-bold cursor-pointer ${
-                      expandedDangerZoneId === match.id
-                        ? 'bg-rose-950/80 text-rose-300 border-[#E21B36]/60'
-                        : 'bg-[#141215] hover:bg-rose-950/40 text-[#777278] hover:text-rose-300 border-[#29252A]/50 hover:border-[#350A12]'
-                    }`}
-                    title="Destructive actions (Cancel, Delete)"
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-                    <span className="hidden sm:inline">Danger Zone</span>
-                    <ChevronDown className={`w-3 h-3 transition-transform ${expandedDangerZoneId === match.id ? 'rotate-180 text-rose-300' : 'text-[#777278]'}`} />
-                  </button>
-                </div>
-              </div>
+                                const entry = {
+                                  ...p,
+                                  slotNumber: slotNo,
+                                  userId: pUserId,
+                                  email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
+                                  inGameId: gameUid,
+                                  inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
+                                  username: details.username || 'Player',
+                                  rank: suggestedRank,
+                                  kills,
+                                  prizeWon
+                                };
 
-              {/* DANGER ZONE / DESTRUCTIVE ACTIONS PANEL (Clearly separated) */}
-              {expandedDangerZoneId === match.id && (
-                <div className="mt-3 p-3 rounded-2xl bg-[#171418] border border-rose-900/50 space-y-2.5 animate-in slide-in-from-top-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] uppercase font-black tracking-wider text-rose-400 flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-rose-400" /> Danger Zone / Destructive Actions
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setExpandedDangerZoneId(null)}
-                      className="p-1 text-[#777278] hover:text-white rounded-lg transition cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                                if (!initMap.has(key)) {
+                                  initMap.set(key, entry);
+                                } else {
+                                  const existing = initMap.get(key);
+                                  if (kills > Number(existing.kills || 0) || prizeWon > Number(existing.prizeWon || 0)) {
+                                    initMap.set(key, entry);
+                                  }
+                                }
+                              });
+                              setParticipantResults(Array.from(initMap.values()));
+                              setActiveReleaseRoomId(null);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-xl text-[10px] font-black transition flex items-center gap-1 border bg-[#141215] hover:bg-[#C9A34E] text-[#C9A34E] hover:text-black border-[#C9A34E]/40 cursor-pointer"
+                        >
+                          <Award className="w-3 h-3" />
+                          <span>Winners</span>
+                        </button>
+                      )}
+                    </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/* Cancel & Refund Action */}
-                    {onCancelMatchAndRefund && (match.status !== 'completed' && match.status !== 'finished' && match.status !== 'cancelled') && (
+                    {/* Right Actions: Edit, Duplicate, Danger Zone */}
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        onClick={() => setCancellingTournament(match)}
-                        className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-[11px] font-black flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md shadow-rose-950/50"
-                        title="Cancel Match & Refund"
+                        onClick={() => handleOpenEditModal(match)}
+                        className="p-1.5 rounded-xl bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition"
+                        title="Edit Match"
                       >
-                        <XCircle className="w-3.5 h-3.5 text-white" />
-                        <span>Cancel Match & Refund Players</span>
+                        <Edit3 className="w-3.5 h-3.5 text-[#C9A34E]" />
                       </button>
-                    )}
 
-                    {/* Delete Match Action */}
-                    <button
-                      type="button"
-                      onClick={() => setDeletingTournament(match)}
-                      className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 text-[11px] font-black flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md shadow-rose-950/50"
-                      title="Permanently Delete Match"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-white" />
-                      <span>Permanently Delete Match</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDuplicateModal(match)}
+                        className="p-1.5 rounded-xl bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border border-[#29252A] transition"
+                        title="Duplicate Match"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-[#C9A34E]" />
+                      </button>
 
-              {/* Inline Release Room Credentials Form Panel */}
-              {activeReleaseRoomId === match.id && (
-                <div className="mt-3 p-4 rounded-xl bg-[#141215] border border-[#29252A] space-y-3.5 animate-in slide-in-from-top-1">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-[#C9A34E] flex items-center gap-1.5">
-                      <Key className="w-3.5 h-3.5 text-[#C9A34E]" /> Enter Game Room ID & Pass
-                    </h4>
-                    <button
-                      onClick={() => setActiveReleaseRoomId(null)}
-                      className="text-[#777278] hover:text-white"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[9px] uppercase font-bold text-[#B0ACB0] mb-1">Room ID</label>
-                      <input
-                        type="text"
-                        required
-                        value={inputRoomId}
-                        onChange={(e) => setInputRoomId(e.target.value)}
-                        placeholder="e.g. 894021"
-                        className="w-full bg-[#141215] text-white text-xs font-mono p-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] uppercase font-bold text-[#B0ACB0] mb-1">Room Password</label>
-                      <input
-                        type="text"
-                        required
-                        value={inputRoomPass}
-                        onChange={(e) => setInputRoomPass(e.target.value)}
-                        placeholder="e.g. WINX7"
-                        className="w-full bg-[#141215] text-white text-xs font-mono p-2.5 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setExpandedDangerZoneId(expandedDangerZoneId === match.id ? null : match.id)}
+                        className={`p-1.5 rounded-xl border transition ${
+                          expandedDangerZoneId === match.id
+                            ? 'bg-rose-950 text-rose-300 border-rose-600'
+                            : 'bg-[#141215] text-[#777278] hover:text-rose-300 border-[#29252A]/50'
+                        }`}
+                        title="Danger Zone (Delete / Cancel)"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                      </button>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2.5 pt-1">
-                    <button
-                      onClick={() => setActiveReleaseRoomId(null)}
-                      className="text-xs text-[#B0ACB0] hover:text-white font-medium"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (inputRoomId && inputRoomPass) {
-                          onReleaseRoomCredentials(match.id, inputRoomId, inputRoomPass);
-                          setActiveReleaseRoomId(null);
-                        }
-                      }}
-                      disabled={!inputRoomId || !inputRoomPass}
-                      className="px-4 py-1.5 rounded-xl bg-[#C9A34E] text-black font-extrabold text-[11px] hover:bg-amber-400 disabled:opacity-50"
-                    >
-                      Release Credentials
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Inline Publish Winners Form Panel */}
-              {activePublishWinnersId === match.id && (
-                <div className="mt-3 p-4 rounded-xl bg-[#141215] border border-[#29252A] space-y-3.5 max-h-80 overflow-y-auto custom-scrollbar animate-in slide-in-from-top-1">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-black text-[#C9A34E] flex items-center gap-1.5">
-                      <Award className="w-3.5 h-3.5 text-[#C9A34E]" /> Enter Rank & Kills For Players
-                    </h4>
-                    <button
-                      onClick={() => setActivePublishWinnersId(null)}
-                      className="text-[#777278] hover:text-white"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {(!participantResults || participantResults.length === 0) ? (
-                    <div className="p-4 text-center rounded-xl bg-[#141215] text-[#777278] text-xs">
-                      No registered participants inside this match yet.
-                    </div>
-                  ) : (
-                    <div className="space-y-3.5">
-                      <div className="space-y-3">
-                        {participantResults.map((p, idx) => {
-                          const { email: userEmail, gameUid, gameIgn, username } = resolveParticipantDetails(p, users, match);
-                          const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
-
-                          return (
-                            <div key={(p as any).userId || (p as any).uid || idx} className="p-3 rounded-xl bg-[#141215] border border-[#29252A]/30 space-y-2.5 text-xs animate-in fade-in-30">
-                              <div className="flex items-center justify-between font-bold text-[#B0ACB0]">
-                                <span className="text-[#C9A34E]">Slot #{slotNo} - {username}</span>
-                              </div>
-
-                              {/* Directly display player registration details */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-[#0D0B0D] p-2 rounded-lg border border-[#29252A]/40 text-[10px] text-[#B0ACB0]">
-                                <div className="truncate"><span className="text-[#777278] font-bold mr-1">Email:</span><span className="text-white font-medium">{userEmail}</span></div>
-                                <div className="truncate"><span className="text-[#777278] font-bold mr-1">IGN:</span><span className="text-[#C9A34E] font-extrabold">{gameIgn}</span></div>
-                              </div>
-
-                              <div className="grid grid-cols-3 gap-1.5">
-                                <div>
-                                  <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Rank</label>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    value={p.rank && !isNaN(Number(p.rank)) ? p.rank : idx + 1}
-                                    onChange={(e) => {
-                                      const updated = [...participantResults];
-                                      const rank = isNaN(Number(e.target.value)) ? idx + 1 : Number(e.target.value);
-                                      const kills = p.kills && !isNaN(Number(p.kills)) ? p.kills : 0;
-                                      const rankPrize = getPrizeForRank(rank, match.prizeDistribution || []);
-                                      const perKill = match.perKillReward && !isNaN(Number(match.perKillReward)) ? match.perKillReward : 0;
-                                      updated[idx] = { 
-                                        ...updated[idx], 
-                                        rank,
-                                        prizeWon: rankPrize + (kills * perKill)
-                                      };
-                                      setParticipantResults(updated);
-                                    }}
-                                    className="w-full bg-[#141215] text-white text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Kills</label>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={p.kills !== undefined && !isNaN(Number(p.kills)) ? p.kills : 0}
-                                    onChange={(e) => {
-                                      const updated = [...participantResults];
-                                      const kills = isNaN(Number(e.target.value)) ? 0 : Number(e.target.value);
-                                      const rank = p.rank && !isNaN(Number(p.rank)) ? p.rank : idx + 1;
-                                      const rankPrize = getPrizeForRank(rank, match.prizeDistribution || []);
-                                      const perKill = match.perKillReward && !isNaN(Number(match.perKillReward)) ? match.perKillReward : 0;
-                                      updated[idx] = { 
-                                        ...updated[idx], 
-                                        kills, 
-                                        prizeWon: rankPrize + (kills * perKill)
-                                      };
-                                      setParticipantResults(updated);
-                                    }}
-                                    className="w-full bg-[#141215] text-white text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[8px] uppercase font-bold text-[#777278] mb-0.5">Prize Won (₹)</label>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={p.prizeWon !== undefined && !isNaN(Number(p.prizeWon)) ? p.prizeWon : 0}
-                                    onChange={(e) => {
-                                      const updated = [...participantResults];
-                                      updated[idx] = { ...updated[idx], prizeWon: isNaN(Number(e.target.value)) ? 0 : Number(e.target.value) };
-                                      setParticipantResults(updated);
-                                    }}
-                                    className="w-full bg-[#141215] text-[#C9A34E] font-bold text-xs p-1.5 rounded-lg border border-[#29252A] focus:outline-none"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
+                  {/* Inline Danger Zone Panel */}
+                  {expandedDangerZoneId === match.id && (
+                    <div className="mt-2 p-2.5 rounded-xl bg-[#171418] border border-rose-900/50 space-y-2 animate-in slide-in-from-top-1">
+                      <div className="flex items-center justify-between text-[10px] uppercase font-black text-rose-400">
+                        <span className="flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5" /> Danger Zone Actions
+                        </span>
+                        <button onClick={() => setExpandedDangerZoneId(null)} className="text-[#777278] hover:text-white">✕</button>
                       </div>
-
-                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-[#29252A]">
-                        <div className="text-[10px] text-[#777278]">
-                          {currentUser?.role === 'staff' ? (
-                            <span className="text-[#C9A34E] font-semibold flex items-center gap-1">
-                              <ShieldAlert className="w-3 h-3 text-[#C9A34E]" /> Staff Mode: Submitting will create a pending Result Request for Admin verification.
-                            </span>
-                          ) : (
-                            <span>Admin Mode: You can publish directly or submit for verification.</span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center justify-end gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        {onCancelMatchAndRefund && (match.status !== 'completed' && match.status !== 'finished' && match.status !== 'cancelled') && (
                           <button
                             type="button"
-                            onClick={() => setActivePublishWinnersId(null)}
-                            className="px-3 py-1.5 text-xs text-[#B0ACB0] hover:text-white font-medium"
+                            onClick={() => setCancellingTournament(match)}
+                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black flex items-center gap-1"
                           >
-                            Cancel
+                            <XCircle className="w-3 h-3" />
+                            <span>Cancel & Refund</span>
                           </button>
-
-                          {/* Staff / Admin Submit for Verification Button */}
-                          {onSubmitResultForVerification && (
-                            <button
-                              type="button"
-                              disabled={isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())}
-                              onClick={async () => {
-                                if (isSubmittingResults) return;
-                                const hasResults = participantResults.some(p => (p.rank || 0) > 0 || (p.kills || 0) > 0 || (p.prizeWon || 0) > 0);
-                                if (!hasResults && !confirm('No ranks/kills entered. Submit empty result request?')) {
-                                  return;
-                                }
-
-                                setIsSubmittingResults(match.id);
-                                const enriched = participantResults.map((p, idx) => {
-                                  const details = resolveParticipantDetails(p, users, match);
-                                  const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
-                                  const curRank = Number(p.rank || idx + 1);
-                                  const curKills = Number(p.kills || 0);
-                                  const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
-                                  const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
-                                  const rankPrize = getPrizeForRank(curRank, match.prizeDistribution || []);
-                                  const effectiveRankPrize = rankPrize > 0 ? rankPrize : (curRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
-                                  const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
-                                  const calculatedTotal = effectiveRankPrize + (curKills * perKillReward);
-                                  const finalPrizeWon = existingPrizeNum > 0 ? existingPrizeNum : calculatedTotal;
-
-                                  return {
-                                    ...p,
-                                    slotNumber: slotNo,
-                                    userId: details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || ''),
-                                    email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
-                                    inGameId: details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || ''),
-                                    inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
-                                    username: details.username || 'Player',
-                                    rank: curRank,
-                                    kills: curKills,
-                                    prizeWon: finalPrizeWon
-                                  };
-                                });
-
-                                try {
-                                  await onSubmitResultForVerification(match.id, enriched);
-                                  setActivePublishWinnersId(null);
-                                  alert('Match result submitted successfully! Pending Admin verification.');
-                                } catch (e: any) {
-                                  console.error('Submit for verification failed', e);
-                                  alert(`Submission failed: ${e?.message || 'Unknown error'}`);
-                                } finally {
-                                  setIsSubmittingResults(null);
-                                }
-                              }}
-                              className="px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] bg-[#C9A34E] hover:bg-amber-400 text-black shadow-md shadow-amber-950 flex items-center gap-1"
-                            >
-                              <span>Submit for Admin Verification</span>
-                            </button>
-                          )}
-
-                          {/* Admin Direct Publish Button */}
-                          {currentUser?.role !== 'staff' && (
-                            <button
-                              type="button"
-                              disabled={isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())}
-                              onClick={async () => {
-                                if (isSubmittingResults) return;
-                                
-                                const hasResults = participantResults.some(p => (p.rank || 0) > 0 || (p.kills || 0) > 0 || (p.prizeWon || 0) > 0);
-                                if (!hasResults && !confirm('No ranks/kills entered. Are you sure you want to publish empty results?')) {
-                                  return;
-                                }
-
-                                setIsSubmittingResults(match.id);
-                                
-                                const enriched = participantResults.map((p, idx) => {
-                                  const details = resolveParticipantDetails(p, users, match);
-                                  const slotNo = (p as any).slotNumber || (p as any).slot_number || (p as any).slot || (idx + 1);
-                                  const curRank = Number(p.rank || idx + 1);
-                                  const curKills = Number(p.kills || 0);
-
-                                  const rawExistingPrize = p.prizeWon ?? (p as any).prize_won ?? (p as any).prize ?? (p as any).winning ?? (p as any).winnings ?? (p as any).winningAmount ?? (p as any).winning_amount ?? (p as any).prizeAmount ?? (p as any).prize_amount;
-                                  const existingPrizeNum = rawExistingPrize !== undefined && rawExistingPrize !== null ? Number(rawExistingPrize) : 0;
-
-                                  const rankPrize = getPrizeForRank(curRank, match.prizeDistribution || []);
-                                  const effectiveRankPrize = rankPrize > 0 ? rankPrize : (curRank === 1 && match.prizePool ? Number(match.prizePool) : 0);
-                                  const perKillReward = match.perKillReward && !isNaN(Number(match.perKillReward)) ? Number(match.perKillReward) : 0;
-                                  const calculatedTotal = effectiveRankPrize + (curKills * perKillReward);
-
-                                  const finalPrizeWon = existingPrizeNum > 0 ? existingPrizeNum : calculatedTotal;
-
-                                  return {
-                                    ...p,
-                                    slotNumber: slotNo,
-                                    userId: details.userAuthUid !== 'N/A' ? details.userAuthUid : ((p as any).userId || (p as any).uid || (p as any).id || ''),
-                                    email: details.email !== 'N/A' ? details.email : ((p as any).email || (p as any).userEmail || ''),
-                                    inGameId: details.gameUid !== 'N/A' ? details.gameUid : ((p as any).inGameId || (p as any).gameUid || ''),
-                                    inGameName: details.gameIgn !== 'N/A' ? details.gameIgn : ((p as any).inGameName || (p as any).gameIgn || (p as any).ign || ''),
-                                    username: details.username || 'Player',
-                                    rank: curRank,
-                                    kills: curKills,
-                                    prizeWon: finalPrizeWon
-                                  };
-                                });
-
-                                try {
-                                  await onPublishMatchResults(match.id, enriched);
-                                  setActivePublishWinnersId(null);
-                                  setResultsListModalTournament({
-                                    ...match,
-                                    status: 'completed',
-                                    results_published: true,
-                                    participants: enriched
-                                  });
-                                } catch (e: any) {
-                                  console.error('Publish failed', e);
-                                  alert(`Publish failed: ${e?.message || 'Unknown error'}`);
-                                } finally {
-                                  setIsSubmittingResults(null);
-                                }
-                              }}
-                              className={`px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] ${
-                                isSubmittingResults === match.id || ['finished', 'completed'].includes((match.status || '').toLowerCase())
-                                  ? 'bg-gray-500 text-gray-200 cursor-not-allowed'
-                                  : 'bg-[#C9A34E] hover:bg-emerald-400 text-black'
-                              }`}
-                            >
-                              {isSubmittingResults === match.id ? 'Publishing...' : (['finished', 'completed'].includes((match.status || '').toLowerCase()) ? 'Published' : 'Publish Directly')}
-                            </button>
-                          )}
-                        </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setDeletingTournament(match)}
+                          className="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-600 text-white text-[10px] font-black flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Delete Match</span>
+                        </button>
                       </div>
                     </div>
                   )}
-                </div>
-              )}
 
-            </div>
-          ))
-        )}
-      </div>
+                  {/* Inline Room Credentials Form Panel */}
+                  {activeReleaseRoomId === match.id && (
+                    <div className="mt-2 p-3 rounded-xl bg-[#141215] border border-[#29252A] space-y-3 animate-in slide-in-from-top-1">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black text-[#C9A34E] flex items-center gap-1.5">
+                          <Key className="w-3.5 h-3.5 text-[#C9A34E]" /> Enter Game Room ID & Pass
+                        </h4>
+                        <button onClick={() => setActiveReleaseRoomId(null)} className="text-[#777278] hover:text-white">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-[#B0ACB0] mb-1">Room ID</label>
+                          <input
+                            type="text"
+                            required
+                            value={inputRoomId}
+                            onChange={(e) => setInputRoomId(e.target.value)}
+                            placeholder="e.g. 894021"
+                            className="w-full bg-[#141215] text-white text-xs font-mono p-2 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-[#B0ACB0] mb-1">Room Password</label>
+                          <input
+                            type="text"
+                            required
+                            value={inputRoomPass}
+                            onChange={(e) => setInputRoomPass(e.target.value)}
+                            placeholder="e.g. WINX7"
+                            className="w-full bg-[#141215] text-white text-xs font-mono p-2 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button onClick={() => setActiveReleaseRoomId(null)} className="text-xs text-[#B0ACB0]">Cancel</button>
+                        <button
+                          onClick={() => {
+                            if (inputRoomId && inputRoomPass) {
+                              onReleaseRoomCredentials(match.id, inputRoomId, inputRoomPass);
+                              setActiveReleaseRoomId(null);
+                            }
+                          }}
+                          disabled={!inputRoomId || !inputRoomPass}
+                          className="px-3.5 py-1.5 rounded-xl bg-[#C9A34E] text-black font-extrabold text-[11px] hover:bg-amber-400 disabled:opacity-50"
+                        >
+                          Release Credentials
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Inline Publish Winners Form Panel */}
+                  {activePublishWinnersId === match.id && (
+                    <TournamentResultFormPanel
+                      match={match}
+                      users={users}
+                      currentUser={currentUser as any}
+                      onSubmitResultForVerification={onSubmitResultForVerification}
+                      onPublishMatchResults={onPublishMatchResults}
+                      onClose={() => setActivePublishWinnersId(null)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {/* Host New Tournament / Edit Tournament Full-Screen Expanded View */}
@@ -2450,6 +3147,67 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                           <Layers className="w-4 h-4" /> 1. Match Identity & Format
                         </h3>
                         <span className="text-[10px] text-[#777278] font-bold">Required Details</span>
+                      </div>
+
+                      {/* Public Match ID: Read-only on edit, auto-assigned on create */}
+                      <div className="bg-[#0D0B0D] p-3 rounded-xl border border-[#29252A] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] uppercase font-bold text-[#777278]">
+                              Public Match ID
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#1B181C] text-[#C9A34E] border border-[#29252A]">
+                              {editingTournament ? 'Permanent • Uneditable' : 'Auto Generated'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-[#B0ACB0]/70 block mt-0.5">
+                            {editingTournament
+                              ? 'Fixed human-readable Match ID in format WX7-DDMM-XXX.'
+                              : 'Allocated atomically on publish in format WX7-DDMM-XXX based on match date.'}
+                          </span>
+                        </div>
+                        {editingTournament ? (
+                          (() => {
+                            const editMatchId = normalizePublicMatchId(editingTournament.matchId || (editingTournament as any).match_id) || editingTournament.matchId || (editingTournament as any).match_id;
+                            if (!editMatchId) return null;
+                            const isCopied = copiedText === editMatchId;
+                            return (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="font-mono text-xs font-black text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-lg tracking-wider select-all">
+                                  {editMatchId}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyValue(editMatchId)}
+                                  className={`p-1.5 rounded-lg border transition flex items-center gap-1 text-[10px] font-bold ${
+                                    isCopied
+                                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                      : 'bg-[#171418] hover:bg-[#1B181C] text-[#B0ACB0] hover:text-white border-[#29252A]'
+                                  }`}
+                                  title="Copy Match ID"
+                                >
+                                  {isCopied ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                      <span>Copied</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span>Copy</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="font-mono text-xs font-bold text-amber-400/80 bg-amber-500/5 border border-amber-500/20 px-2.5 py-1 rounded-lg tracking-wider">
+                              WX7-DDMM-XXX
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {/* MATCH CATEGORY Selection: SURVIVOR, ARENA, LONE WOLF */}
@@ -2855,6 +3613,31 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                             }}
                             className="w-full bg-[#171418] text-white text-xs p-3 rounded-xl border border-[#29252A] focus:border-[#C9A34E] focus:outline-none font-bold"
                           />
+
+                          {formStartTime && (
+                            <div className="mt-2 text-xs text-[#00FFB2] font-black flex items-center gap-1.5 px-1">
+                              <span className="shrink-0 text-[#8E8A90] font-normal uppercase text-[10px]">Formatted Preview:</span>
+                              <span>{(() => {
+                                try {
+                                  const d = new Date(formStartTime);
+                                  if (isNaN(d.getTime())) return formStartTime;
+                                  const datePart = new Intl.DateTimeFormat('en-IN', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  }).format(d);
+                                  const timePart = new Intl.DateTimeFormat('en-US', {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  }).format(d);
+                                  return `${datePart} at ${timePart} (IST)`;
+                                } catch (e) {
+                                  return formStartTime;
+                                }
+                              })()}</span>
+                            </div>
+                          )}
 
                           {/* Quick Timing Presets */}
                           <div className="flex items-center gap-1.5 mt-2">
@@ -3481,7 +4264,40 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                       {detailsModalTournament.game || 'Match'}
                     </span>
                   </div>
-                  <p className="text-[10px] sm:text-xs text-[#B0ACB0]/80 truncate max-w-md sm:max-w-xl">{detailsModalTournament.title}</p>
+                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                    <p className="text-[10px] sm:text-xs text-[#B0ACB0]/80 truncate max-w-xs sm:max-w-md">{detailsModalTournament.title}</p>
+                    {(() => {
+                      const mId = normalizePublicMatchId(detailsModalTournament.matchId || (detailsModalTournament as any).match_id) || detailsModalTournament.matchId || (detailsModalTournament as any).match_id;
+                      if (!mId) return null;
+                      const isCopied = copiedText === mId;
+                      return (
+                        <div className="flex items-center gap-1">
+                          <span className="font-mono text-[11px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded tracking-wider select-all">
+                            {mId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyValue(mId)}
+                            className={`p-1 rounded transition flex items-center gap-1 text-[10px] font-semibold ${
+                              isCopied
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'text-[#777278] hover:text-amber-300 hover:bg-white/5'
+                            }`}
+                            title="Copy Match ID"
+                          >
+                            {isCopied ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-400" />
+                                <span className="text-[10px]">Copied</span>
+                              </>
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
 
@@ -4300,6 +5116,31 @@ export const TournamentManagement: React.FC<TournamentManagementProps> = ({
                   onChange={(e) => setDuplicateStartTime(e.target.value)}
                   className="w-full bg-[#171418] border border-[#29252A] rounded-2xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-[#C9A34E] focus:ring-2 focus:ring-[#C9A34E]/20 shadow-inner"
                 />
+
+                {duplicateStartTime && (
+                  <div className="mt-1.5 text-xs text-[#00FFB2] font-black flex items-center gap-1.5 px-1">
+                    <span className="shrink-0 text-[#777278] font-normal uppercase text-[10px]">Selected Schedule:</span>
+                    <span>{(() => {
+                      try {
+                        const d = new Date(duplicateStartTime);
+                        if (isNaN(d.getTime())) return duplicateStartTime;
+                        const datePart = new Intl.DateTimeFormat('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric'
+                        }).format(d);
+                        const timePart = new Intl.DateTimeFormat('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        }).format(d);
+                        return `${datePart} at ${timePart} (IST)`;
+                      } catch (e) {
+                        return duplicateStartTime;
+                      }
+                    })()}</span>
+                  </div>
+                )}
 
                 {/* Quick Shift buttons */}
                 <div className="flex items-center gap-2 pt-1 flex-wrap">

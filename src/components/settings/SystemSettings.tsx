@@ -14,11 +14,13 @@ import {
   Bell,
   Send,
   Radio,
-  AlertCircle
+  AlertCircle,
+  Smartphone,
+  Headphones
 } from 'lucide-react';
 import { checkFcmBackendStatus } from '../../services/notificationSenderService';
 import { SupportManagement } from '../support/SupportManagement';
-import { Headphones } from 'lucide-react';
+import { AppVersionCard } from './AppVersionCard';
 
 interface SystemSettingsProps {
   settings: SystemSettingsType;
@@ -172,7 +174,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
     }
   };
 
-  const [settingsSection, setSettingsSection] = useState<'policies' | 'support'>('policies');
+  const [settingsSection, setSettingsSection] = useState<'version' | 'policies' | 'support'>('version');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,8 +197,32 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
   return (
     <div className="space-y-6 animate-in fade-in pb-16 md:pb-6 max-w-6xl mx-auto">
       {/* Top Main Navigation Tabs */}
-      <div className="flex items-center gap-2 bg-[#141215] p-1.5 rounded-2xl border border-[#29252A] w-fit shadow-md">
+      <div className="flex items-center gap-2 bg-[#141215] p-1.5 rounded-2xl border border-[#29252A] w-fit shadow-md flex-wrap">
         <button
+          id="tab-btn-version"
+          type="button"
+          onClick={() => setSettingsSection('version')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition ${
+            settingsSection === 'version'
+              ? 'bg-gradient-to-r from-[#C9A34E] to-[#B38F3F] text-[#0D0B0D] shadow-lg shadow-[#C9A34E]/20'
+              : 'text-[#777278] hover:text-[#F5F5F5] hover:bg-[#1B181C]'
+          }`}
+        >
+          <Smartphone className="w-4 h-4" />
+          <span>App Version & Updates</span>
+          <span
+            className={`px-1.5 py-0.5 text-[9px] font-mono font-bold rounded ${
+              settingsSection === 'version'
+                ? 'bg-[#0D0B0D]/25 text-[#0D0B0D]'
+                : 'bg-[#1B181C] text-[#C9A34E] border border-[#C9A34E]/30'
+            }`}
+          >
+            v{settings.latestAppVersion || settings.appVersion || '1.0.8'}
+          </span>
+        </button>
+
+        <button
+          id="tab-btn-policies"
           type="button"
           onClick={() => setSettingsSection('policies')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition ${
@@ -210,6 +236,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
         </button>
 
         <button
+          id="tab-btn-support"
           type="button"
           onClick={() => setSettingsSection('support')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition ${
@@ -223,7 +250,9 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
         </button>
       </div>
 
-      {settingsSection === 'support' ? (
+      {settingsSection === 'version' ? (
+        <AppVersionCard settings={settings} onUpdateSettings={onUpdateSettings} />
+      ) : settingsSection === 'support' ? (
         <SupportManagement />
       ) : (
         <>

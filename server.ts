@@ -11,7 +11,8 @@ import {
   getBackendSupabase,
   registerDeviceToken,
   unregisterDeviceToken,
-  getRegisteredDevicesList
+  getRegisteredDevicesList,
+  isValidFcmRegistrationToken
 } from './server/firebaseAdmin';
 
 dotenv.config();
@@ -35,6 +36,345 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 // =================================================================
+// AUTHENTICATION & AUTHORIZATION HELPERS FOR SERVER NOTIFICATIONS
+// =================================================================
+interface AuthCallerResult {
+  authenticated: boolean;
+  userId?: string;
+  role?: string;
+  assignedGame?: string | null;
+  isAdmin?: boolean;
+  isStaff?: boolean;
+  error?: string;
+  statusCode?: number;
+}
+
+async function verifyAuthCaller(req: express.Request): Promise<AuthCallerResult> {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return {
+      authenticated: false,
+      statusCode: 401,
+      error: 'Missing or malformed Authorization header. Bearer token required.'
+    };
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (!token) {
+    return {
+      authenticated: false,
+      statusCode: 401,
+      error: 'Empty Bearer token.'
+    };
+  }
+
+  const sb = getBackendSupabase();
+  if (!sb) {
+    return {
+      authenticated: false,
+      statusCode: 500,
+      error: 'Backend authentication service unavailable.'
+    };
+  }
+
+  try {
+    const { data: { user }, error: authError } = await sb.auth.getUser(token);
+    if (authError || !user) {
+      return {
+        authenticated: false,
+        statusCode: 401,
+        error: `Invalid or expired session token: ${authError?.message || 'User not found'}`
+      };
+    }
+
+    const { data: profile, error: profileErr } = await sb
+      .from('profiles')
+      .select('id, role, assigned_game')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileErr) {
+      console.warn(`[Auth Verify] Error fetching profile for ${user.id}:`, profileErr.message);
+    }
+
+    const rawRole = (profile?.role || 'user').toLowerCase().trim();
+    const assignedGame = profile?.assigned_game ? String(profile.assigned_game).trim() : null;
+    const isAdmin = ['superadmin', 'admin'].includes(rawRole);
+    const isStaff = rawRole === 'staff';
+
+    return {
+      authenticated: true,
+      userId: user.id,
+      role: rawRole,
+      assignedGame,
+      isAdmin,
+      isStaff
+    };
+  } catch (err: any) {
+    return {
+      authenticated: false,
+      statusCode: 500,
+      error: `Authentication verification error: ${err?.message || String(err)}`
+    };
+  }
+}
+
+function isStaffGameMatch(assignedGame: string | null, tournamentGame: string | null, tournamentCategory?: string | null): boolean {
+  if (!assignedGame || !assignedGame.trim() || assignedGame.trim().toLowerCase() === 'not assigned') {
+    return false;
+  }
+  const assigned = assignedGame.toUpperCase().trim();
+  const target = (tournamentGame || tournamentCategory || '').toUpperCase().trim();
+
+  if (assigned === 'FREE FIRE' || assigned.includes('FREE') || assigned.includes('FIRE') || assigned === 'FF') {
+    return target === 'FREE FIRE' || target === 'FREE_FIRE' || target.includes('FREE') || target.includes('FIRE') || (!target.includes('BGMI') && !target.includes('BATTLEGROUND') && !target.includes('PUBG'));
+  }
+  if (assigned === 'BGMI' || assigned.includes('BGMI') || assigned.includes('BATTLEGROUND') || assigned === 'PUBG') {
+    return target === 'BGMI' || target.includes('BGMI') || target.includes('BATTLEGROUND') || target.includes('PUBG');
+  }
+  return false;
+}
+
+// =================================================================
+// 0. TIME SYNCHRONIZATION & AUTO MATCH STATUS TRANSITION WORKER
+// =================================================================
+app.get('/api/time', (_req, res) => {
+  res.json({
+    success: true,
+    serverTimeMs: Date.now(),
+    serverIso: new Date().toISOString()
+  });
+});
+
+/**
+ * Helper to get current date parts in Asia/Kolkata timezone on the server
+ */
+function getServerKolkataDateParts(referenceNowMs: number = Date.now()): { year: number; month: number; day: number } {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    const parts = formatter.format(new Date(referenceNowMs)).split('-');
+    return { year: Number(parts[0]), month: Number(parts[1]), day: Number(parts[2]) };
+  } catch {
+    const d = new Date(referenceNowMs + 5.5 * 60 * 60 * 1000);
+    return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+  }
+}
+
+/**
+ * Parse match scheduled start time in milliseconds strictly in Asia/Kolkata timezone (+05:30)
+ */
+function parseServerMatchStartTimeMs(
+  matchTime?: string | null,
+  matchDate?: string | null,
+  timeStr?: string | null,
+  referenceNowMs: number = Date.now()
+): number | null {
+  const timeVal = (matchTime || '').trim();
+  const dateVal = (matchDate || '').trim();
+  const fallbackTimeVal = (timeStr || '').trim();
+
+  // 1. Check if timeVal has explicit timezone designator (Z or +hh:mm)
+  if (timeVal) {
+    if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timeVal)) {
+      const parsed = Date.parse(timeVal);
+      if (!isNaN(parsed)) return parsed;
+    }
+
+    // 2. Check if timeVal is ISO local format: YYYY-MM-DDTHH:mm(:ss)?
+    const isoMatch = timeVal.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (isoMatch) {
+      const [, y, m, d, h, min, s] = isoMatch;
+      const sec = s ? s.padStart(2, '0') : '00';
+      const isoWithKolkata = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${h.padStart(2, '0')}:${min.padStart(2, '0')}:${sec}+05:30`;
+      const parsed = Date.parse(isoWithKolkata);
+      if (!isNaN(parsed)) return parsed;
+    }
+  }
+
+  // 3. Extract time components (HH:mm:ss AM/PM or HH:mm:ss 24h)
+  let hours = 0;
+  let minutes = 0;
+  let seconds = 0;
+  let timeFound = false;
+
+  const rawTimeToParse = timeVal || fallbackTimeVal;
+  if (rawTimeToParse) {
+    const tMatch = rawTimeToParse.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?/i);
+    if (tMatch) {
+      let h = Number(tMatch[1]);
+      const min = Number(tMatch[2]);
+      const sec = tMatch[3] ? Number(tMatch[3]) : 0;
+      const ampm = (tMatch[4] || '').toUpperCase();
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      hours = h;
+      minutes = min;
+      seconds = sec;
+      timeFound = true;
+    }
+  }
+
+  // 4. Extract date components (DD/MM/YYYY, YYYY-MM-DD, Today, Tomorrow)
+  let year: number;
+  let month: number;
+  let day: number;
+
+  const kolkataNow = getServerKolkataDateParts(referenceNowMs);
+
+  if (dateVal) {
+    const dmyMatch = dateVal.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+    const ymdMatch = dateVal.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})/);
+
+    if (dmyMatch) {
+      day = Number(dmyMatch[1]);
+      month = Number(dmyMatch[2]);
+      year = Number(dmyMatch[3]);
+    } else if (ymdMatch) {
+      year = Number(ymdMatch[1]);
+      month = Number(ymdMatch[2]);
+      day = Number(ymdMatch[3]);
+    } else if (dateVal.toLowerCase() === 'today') {
+      year = kolkataNow.year;
+      month = kolkataNow.month;
+      day = kolkataNow.day;
+    } else if (dateVal.toLowerCase() === 'tomorrow') {
+      const tomorrowMs = referenceNowMs + 24 * 60 * 60 * 1000;
+      const tKolkata = getServerKolkataDateParts(tomorrowMs);
+      year = tKolkata.year;
+      month = tKolkata.month;
+      day = tKolkata.day;
+    } else {
+      year = kolkataNow.year;
+      month = kolkataNow.month;
+      day = kolkataNow.day;
+    }
+  } else {
+    year = kolkataNow.year;
+    month = kolkataNow.month;
+    day = kolkataNow.day;
+  }
+
+  if (!timeFound && !timeVal && !fallbackTimeVal) {
+    return null;
+  }
+
+  const yStr = String(year).padStart(4, '0');
+  const mStr = String(month).padStart(2, '0');
+  const dStr = String(day).padStart(2, '0');
+  const hStr = String(hours).padStart(2, '0');
+  const minStr = String(minutes).padStart(2, '0');
+  const sStr = String(seconds).padStart(2, '0');
+
+  const finalIso = `${yStr}-${mStr}-${dStr}T${hStr}:${minStr}:${sStr}+05:30`;
+  const resultMs = Date.parse(finalIso);
+  return isNaN(resultMs) ? null : resultMs;
+}
+
+/**
+ * Auto-transition matches from UPCOMING to LIVE
+ * Rule: Automatically transitions to LIVE at exactly 30 seconds after the scheduled start time
+ * Example: Match scheduled for 10:30:00 AM becomes LIVE at 10:30:30 AM
+ */
+async function autoTransitionUpcomingMatchesToLive(): Promise<{ transitionedCount: number; checkedCount: number }> {
+  try {
+    const sb = getBackendSupabase();
+    if (!sb) return { transitionedCount: 0, checkedCount: 0 };
+
+    // Fetch matches that are currently upcoming
+    const { data: upcomingTournaments, error } = await sb
+      .from('tournaments')
+      .select('id, match_id, title, status, match_time, match_date, start_time, match_schedule, time, results_published, completed_at')
+      .in('status', ['UPCOMING', 'upcoming', 'Upcoming', 'UPCOMING_MATCH', 'SCHEDULED', 'scheduled']);
+
+    if (error || !upcomingTournaments || upcomingTournaments.length === 0) {
+      return { transitionedCount: 0, checkedCount: 0 };
+    }
+
+    const nowMs = Date.now();
+    const thirtySecs = 30 * 1000;
+    let transitionedCount = 0;
+
+    for (const t of upcomingTournaments) {
+      // If match is already completed or results published, skip permanently
+      if (t.results_published || t.completed_at) continue;
+
+      const rawTime = t.match_time || t.start_time || t.match_schedule;
+      const startMs = parseServerMatchStartTimeMs(rawTime, t.match_date, t.time, nowMs);
+      if (startMs === null || isNaN(startMs)) continue;
+
+      // Check if current server time is >= scheduled start time + 30 seconds
+      if (nowMs >= startMs + thirtySecs) {
+        console.log(`[Auto Match Status] Transitioning match ${t.match_id || t.id} ("${t.title}") to LIVE (Scheduled: ${rawTime}, Threshold: +30s)`);
+        const { error: updateErr } = await sb
+          .from('tournaments')
+          .update({
+            status: 'LIVE',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', t.id)
+          .in('status', ['UPCOMING', 'upcoming', 'Upcoming', 'UPCOMING_MATCH', 'SCHEDULED', 'scheduled']);
+
+        if (updateErr) {
+          console.warn(`[Auto Match Status] Failed to update tournament ${t.id}:`, updateErr.message);
+        } else {
+          transitionedCount++;
+        }
+      }
+    }
+
+    return { transitionedCount, checkedCount: upcomingTournaments.length };
+  } catch (err: any) {
+    console.warn('[Auto Match Status Worker Error]:', err?.message || err);
+    return { transitionedCount: 0, checkedCount: 0 };
+  }
+}
+
+// Run auto status transition worker every 5 seconds on the server
+setInterval(autoTransitionUpcomingMatchesToLive, 5000);
+setTimeout(autoTransitionUpcomingMatchesToLive, 2000);
+
+// API endpoint to trigger status synchronization on demand
+app.post('/api/tournaments/sync-status', async (_req, res) => {
+  const result = await autoTransitionUpcomingMatchesToLive();
+  res.json({
+    success: true,
+    serverTime: new Date().toISOString(),
+    ...result
+  });
+});
+
+// API endpoint to generate next authoritative match ID directly via PostgreSQL sequence function
+app.post('/api/tournaments/generate-match-id', async (req, res) => {
+  try {
+    const { matchTime, matchDate, createdAt } = req.body || {};
+    const sb = getBackendSupabase();
+    if (!sb) {
+      res.status(500).json({ success: false, error: 'Database backend connection unavailable.' });
+      return;
+    }
+    const { data, error } = await sb.rpc('generate_next_match_id', {
+      p_match_time: matchTime || null,
+      p_match_date: matchDate || null,
+      p_created_at: createdAt || new Date().toISOString()
+    });
+    if (error || !data) {
+      console.error('[Server RPC generate_next_match_id Error]:', error);
+      res.status(500).json({ success: false, error: error?.message || 'Failed to generate match ID' });
+      return;
+    }
+    res.json({ success: true, matchId: data });
+  } catch (err: any) {
+    console.error('[Server generate-match-id Exception]:', err);
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// =================================================================
 // 1. HEALTH & FCM STATUS API
 // =================================================================
 app.get('/api/health', (_req, res) => {
@@ -52,18 +392,32 @@ app.get('/api/notifications/status', (_req, res) => {
 // =================================================================
 // 1.1 NOTIFICATIONS DATA ENDPOINTS (Admin Portal Supabase Gateway)
 // =================================================================
-app.get('/api/notifications', async (_req, res) => {
+app.get('/api/notifications', async (req, res) => {
   try {
+    const caller = await verifyAuthCaller(req);
+    if (!caller.authenticated) {
+      res.status(caller.statusCode || 401).json({ success: false, data: [], error: caller.error });
+      return;
+    }
+
     const sb = getBackendSupabase();
     if (!sb) {
       res.json({ success: false, data: [] });
       return;
     }
-    const { data, error } = await sb
+
+    let query = sb
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(100);
+
+    // If regular user or staff, only fetch notifications addressed to them or global
+    if (!caller.isAdmin) {
+      query = query.or(`user_id.eq.${caller.userId},user_id.is.null`);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.warn('[Server Notifications Fetch Notice]:', error.message);
@@ -78,6 +432,18 @@ app.get('/api/notifications', async (_req, res) => {
 
 app.post('/api/notifications', async (req, res) => {
   try {
+    const caller = await verifyAuthCaller(req);
+    if (!caller.authenticated) {
+      res.status(caller.statusCode || 401).json({ success: false, error: caller.error });
+      return;
+    }
+
+    // Only Admin or Staff can write notification records
+    if (!caller.isAdmin && !caller.isStaff) {
+      res.status(403).json({ success: false, error: 'Forbidden: Insufficient permissions to create notifications.' });
+      return;
+    }
+
     const sb = getBackendSupabase();
     if (!sb) {
       res.status(500).json({ success: false, error: 'Backend database connection not available.' });
@@ -1066,6 +1432,12 @@ app.get('/api/admin/users/search', async (req, res) => {
       const winxIgn = p.in_game_name || p.ff_ign || p.bgmi_ign || p.ign || '';
       const winxUsername = p.username || '';
       const winxName = p.name || p.display_name || p.username || winxIgn || (p.email ? p.email.split('@')[0] : 'User');
+      const rawStatus = String(p.status || '').toUpperCase();
+      const isSuspended = Boolean(p.is_suspended || rawStatus === 'SUSPENDED');
+      const isBanned = Boolean(p.is_banned || rawStatus === 'BANNED');
+      const isBlocked = Boolean(p.is_blocked || rawStatus === 'BLOCKED');
+      const normalizedStatus = isSuspended ? 'suspended' : isBanned ? 'banned' : isBlocked ? 'blocked' : 'active';
+
       return {
         id: p.id,
         name: winxName,
@@ -1073,7 +1445,29 @@ app.get('/api/admin/users/search', async (req, res) => {
         username: winxUsername,
         inGameName: winxIgn,
         inGameId: p.in_game_id || p.ff_uid || p.bgmi_uid || '',
-        avatarUrl: p.avatar_url || ''
+        avatarUrl: p.avatar_url || '',
+        status: normalizedStatus,
+        is_suspended: isSuspended,
+        isSuspended: isSuspended,
+        is_banned: isBanned,
+        is_blocked: isBlocked,
+        ban_reason: p.ban_reason || '',
+        banReason: p.ban_reason || '',
+        role: p.role || 'USER',
+        phone: p.phone || '',
+        deposit_balance: Number(p.deposit_balance ?? p.wallet_balance ?? 0),
+        winning_balance: Number(p.winning_balance ?? p.unclaimed_winnings ?? 0),
+        bonus_balance: Number(p.bonus_balance ?? 0),
+        total_balance: Number(p.total_balance ?? ((p.deposit_balance ?? 0) + (p.winning_balance ?? 0) + (p.bonus_balance ?? 0))),
+        created_at: p.created_at || '',
+        bgmi_ign: p.bgmi_ign || '',
+        bgmiIgn: p.bgmi_ign || '',
+        bgmi_uid: p.bgmi_uid || '',
+        bgmiUid: p.bgmi_uid || '',
+        ff_ign: p.ff_ign || p.in_game_name || '',
+        ffIgn: p.ff_ign || p.in_game_name || '',
+        ff_uid: p.ff_uid || p.in_game_id || '',
+        ffUid: p.ff_uid || p.in_game_id || ''
       };
     });
 
@@ -1090,6 +1484,133 @@ app.get('/api/admin/users/search', async (req, res) => {
 
     res.json({ success: true, data: sanitized, count: sanitized.length });
   } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
+});
+
+// Admin Account Suspension and Status Update Endpoint
+app.post(['/api/admin/users/update-status', '/api/admin/users/suspend', '/api/admin/users/unsuspend'], async (req, res) => {
+  try {
+    const authCheck = await verifyAdminCaller(req);
+    if (!authCheck.authorized) {
+      res.status(403).json({ success: false, error: authCheck.error });
+      return;
+    }
+
+    const { userId, status, isSuspended, reason, banReason } = req.body;
+    if (!userId) {
+      res.status(400).json({ success: false, message: 'User ID is required.' });
+      return;
+    }
+
+    const sb = getBackendSupabase();
+    if (!sb) {
+      res.status(500).json({ success: false, message: 'Backend database connection unavailable.' });
+      return;
+    }
+
+    // Determine whether this is a suspend or unsuspend action
+    const isExplicitUnsuspend = req.path.includes('unsuspend') || 
+      (status && String(status).toUpperCase() === 'ACTIVE' && isSuspended === false);
+
+    const shouldSuspend = !isExplicitUnsuspend && (
+      req.path.includes('suspend') ||
+      isSuspended === true ||
+      (status && ['SUSPENDED', 'BLOCKED', 'BANNED', 'suspended', 'blocked', 'banned'].includes(String(status)))
+    );
+
+    const suspensionReason = String(reason || banReason || (shouldSuspend ? 'Account suspended by administrator' : '')).trim();
+
+    // 1. Fetch current profile to ensure user exists
+    const { data: currentProfile, error: fetchErr } = await sb
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.error('[Admin User Status] Fetch profile error:', fetchErr.message);
+      res.status(500).json({ success: false, message: 'Error retrieving user profile.' });
+      return;
+    }
+
+    if (!currentProfile) {
+      res.status(404).json({ success: false, message: 'User profile not found.' });
+      return;
+    }
+
+    // 2. Prepare atomic payload for profiles table
+    const profileUpdatePayload = shouldSuspend
+      ? {
+          status: 'SUSPENDED',
+          is_suspended: true,
+          // Preserve existing is_banned and is_blocked flags unless specifically requested by status
+          is_banned: Boolean(currentProfile.is_banned || status === 'banned' || status === 'BANNED'),
+          is_blocked: Boolean(currentProfile.is_blocked || status === 'blocked' || status === 'BLOCKED'),
+          ban_reason: suspensionReason,
+          updated_at: new Date().toISOString()
+        }
+      : {
+          status: 'ACTIVE',
+          is_suspended: false,
+          is_banned: false,
+          is_blocked: false,
+          ban_reason: '',
+          updated_at: new Date().toISOString()
+        };
+
+    const { data: updatedProfile, error: updateErr } = await sb
+      .from('profiles')
+      .update(profileUpdatePayload)
+      .eq('id', userId)
+      .select();
+
+    if (updateErr) {
+      console.error('[Admin User Status] DB update error:', updateErr.message);
+      res.status(500).json({ success: false, message: `Failed to update user in database: ${updateErr.message}` });
+      return;
+    }
+
+    // 3. Update Supabase Auth user to enforce persistent restriction on Email/Password and Google logins
+    try {
+      if (sb.auth?.admin?.updateUserById) {
+        if (shouldSuspend) {
+          // Setting ban_duration to 100 years blocks both password and Google OAuth authentication
+          await sb.auth.admin.updateUserById(userId, {
+            ban_duration: '876600h',
+            user_metadata: {
+              ...(currentProfile.user_metadata || {}),
+              is_suspended: true,
+              status: 'SUSPENDED',
+              ban_reason: suspensionReason
+            }
+          });
+          console.log(`[Admin User Status] Successfully applied Supabase Auth ban to user ${userId}`);
+        } else {
+          // Setting ban_duration to 'none' lifts the authentication restriction
+          await sb.auth.admin.updateUserById(userId, {
+            ban_duration: 'none',
+            user_metadata: {
+              ...(currentProfile.user_metadata || {}),
+              is_suspended: false,
+              status: 'ACTIVE',
+              ban_reason: ''
+            }
+          });
+          console.log(`[Admin User Status] Successfully lifted Supabase Auth ban for user ${userId}`);
+        }
+      }
+    } catch (authBanErr: any) {
+      console.warn('[Admin User Status] Supabase Auth ban update notice (non-fatal):', authBanErr?.message || authBanErr);
+    }
+
+    res.json({
+      success: true,
+      message: shouldSuspend ? 'User account has been persistently suspended.' : 'User account has been restored to ACTIVE.',
+      user: updatedProfile?.[0] || { id: userId, ...profileUpdatePayload }
+    });
+  } catch (err: any) {
+    console.error('[Admin User Status Endpoint Error]:', err);
     res.status(500).json({ success: false, error: err?.message || String(err) });
   }
 });
@@ -1778,9 +2299,24 @@ app.get('/api/notifications/registered-devices', (_req, res) => {
  * Title: WINX7 💸
  * Body: Your withdrawal request is successfully processed.
  * Type: WITHDRAWAL_SUCCESS
+ * RESTRICTED: ADMIN & SUPERADMIN ONLY
  */
 app.post('/api/notifications/send-withdrawal', async (req, res) => {
   try {
+    const caller = await verifyAuthCaller(req);
+    if (!caller.authenticated) {
+      res.status(caller.statusCode || 401).json({ success: false, error: caller.error });
+      return;
+    }
+
+    if (!caller.isAdmin) {
+      res.status(403).json({
+        success: false,
+        error: 'Forbidden: Only administrators can dispatch withdrawal notifications.'
+      });
+      return;
+    }
+
     const { userId, transactionId, amount, token, eventId } = req.body || {};
 
     if (!userId) {
@@ -1794,7 +2330,6 @@ app.post('/api/notifications/send-withdrawal', async (req, res) => {
 
     // Idempotency check
     if (processedEventIds.has(cleanEventId)) {
-      const prev = processedEventIds.get(cleanEventId);
       console.log(`[Withdrawal Notification] Duplicate prevented for event ${cleanEventId}`);
       res.json({
         success: true,
@@ -1814,7 +2349,7 @@ app.post('/api/notifications/send-withdrawal', async (req, res) => {
     const fetchedTokens = await getFCMTokensForUser(cleanUserId);
     fetchedTokens.forEach(t => tokens.add(t));
 
-    const tokenList = Array.from(tokens);
+    const tokenList = Array.from(tokens).filter(t => isValidFcmRegistrationToken(t));
 
     if (tokenList.length === 0) {
       console.warn(`[Withdrawal Notification] No FCM tokens found for user ${cleanUserId}`);
@@ -1875,6 +2410,17 @@ app.post('/api/notifications/send-withdrawal', async (req, res) => {
  */
 app.post('/api/notifications/send-match-result', async (req, res) => {
   try {
+    const caller = await verifyAuthCaller(req);
+    if (!caller.authenticated) {
+      res.status(caller.statusCode || 401).json({ success: false, error: caller.error });
+      return;
+    }
+
+    if (!caller.isAdmin && !caller.isStaff) {
+      res.status(403).json({ success: false, error: 'Forbidden: Insufficient permissions to send match result notifications.' });
+      return;
+    }
+
     const { matchId, userIds, eventId, force } = req.body || {};
 
     if (!matchId) {
@@ -1885,7 +2431,43 @@ app.post('/api/notifications/send-match-result', async (req, res) => {
     const cleanMatchId = String(matchId).trim();
     const cleanEventId = eventId ? String(eventId).trim() : `result_${cleanMatchId}`;
 
-    // 1. IDEMPOTENCY CHECK
+    const sb = getBackendSupabase();
+    if (!sb) {
+      res.status(500).json({ success: false, error: 'Database service unavailable.' });
+      return;
+    }
+
+    // 1. Fetch tournament info & enforce game isolation for STAFF
+    const { data: tourn, error: tournErr } = await sb
+      .from('tournaments')
+      .select('id, title, game, game_category, status')
+      .eq('id', cleanMatchId)
+      .maybeSingle();
+
+    if (tournErr || !tourn) {
+      res.status(404).json({ success: false, error: `Match with ID ${cleanMatchId} not found.` });
+      return;
+    }
+
+    if (caller.isStaff) {
+      if (!caller.assignedGame || caller.assignedGame.trim().toLowerCase() === 'not assigned') {
+        res.status(403).json({
+          success: false,
+          error: 'STAFF permission policy: Your staff account has no assigned game. Contact an administrator.'
+        });
+        return;
+      }
+
+      if (!isStaffGameMatch(caller.assignedGame, tourn.game, tourn.game_category)) {
+        res.status(403).json({
+          success: false,
+          error: `STAFF permission policy: You are assigned to "${caller.assignedGame}" and cannot send result notifications for "${tourn.game || 'other game'}" matches.`
+        });
+        return;
+      }
+    }
+
+    // 2. IDEMPOTENCY CHECK
     if (!force && processedEventIds.has(cleanEventId)) {
       console.log(`[Result Notification] Duplicate prevented for event ${cleanEventId}`);
       res.json({
@@ -1897,21 +2479,54 @@ app.post('/api/notifications/send-match-result', async (req, res) => {
       return;
     }
 
-    // 2. Fetch all joined users and their FCM tokens
-    const { userIds: participants, tokens } = await getFCMTokensForMatchParticipants(
-      cleanMatchId,
-      Array.isArray(userIds) ? userIds : undefined
+    // 3. Fetch participants STRICTLY from database registrations for this specific match
+    const { data: regs, error: regsErr } = await sb
+      .from('registrations')
+      .select('user_id')
+      .eq('tournament_id', cleanMatchId);
+
+    if (regsErr) {
+      console.warn(`[Result Notification] Error querying registrations for ${cleanMatchId}:`, regsErr.message);
+    }
+
+    const registeredUserIds: string[] = Array.from(
+      new Set((regs || []).map((r: any) => String(r.user_id || '')).filter(Boolean))
     );
 
-    if (tokens.length === 0) {
-      console.warn(`[Result Notification] No FCM tokens found for match ${cleanMatchId} (${participants.length} users)`);
+    // If caller is Admin and explicitly supplied userIds subset, allow filtering, but STAFF must strictly use server registrations
+    const targetUserIds: string[] = (caller.isAdmin && Array.isArray(userIds) && userIds.length > 0)
+      ? userIds.map((u: any) => String(u))
+      : registeredUserIds;
+
+    if (targetUserIds.length === 0) {
       processedEventIds.set(cleanEventId, { timestamp: Date.now(), type: 'RESULT', count: 0 });
       res.json({
         success: false,
         noTokens: true,
         eventId: cleanEventId,
-        participantsCount: participants.length,
-        message: `No active FCM tokens found for ${participants.length} match participant(s).`
+        participantsCount: 0,
+        message: `No registered players found for match ${cleanMatchId}.`
+      });
+      return;
+    }
+
+    const tokens = new Set<string>();
+    for (const uid of targetUserIds) {
+      const uTokens = await getFCMTokensForUser(String(uid));
+      uTokens.forEach(t => tokens.add(t));
+    }
+
+    const tokenList = Array.from(tokens).filter(t => isValidFcmRegistrationToken(t));
+
+    if (tokenList.length === 0) {
+      console.warn(`[Result Notification] No FCM tokens found for match ${cleanMatchId} (${targetUserIds.length} users)`);
+      processedEventIds.set(cleanEventId, { timestamp: Date.now(), type: 'RESULT', count: 0 });
+      res.json({
+        success: false,
+        noTokens: true,
+        eventId: cleanEventId,
+        participantsCount: targetUserIds.length,
+        message: `No active FCM tokens found for ${targetUserIds.length} match participant(s).`
       });
       return;
     }
@@ -1921,7 +2536,7 @@ app.post('/api/notifications/send-match-result', async (req, res) => {
     const body = 'Result is out! Open the app to see your winnings.';
 
     const result = await sendFcmNotificationToTokens({
-      tokens,
+      tokens: tokenList,
       title,
       body,
       data: {
@@ -1943,7 +2558,7 @@ app.post('/api/notifications/send-match-result', async (req, res) => {
       ...result,
       eventId: cleanEventId,
       matchId: cleanMatchId,
-      participantsCount: participants.length
+      participantsCount: targetUserIds.length
     });
   } catch (err: any) {
     console.error('[send-match-result error]:', err);
@@ -1952,19 +2567,27 @@ app.post('/api/notifications/send-match-result', async (req, res) => {
 });
 
 // =================================================================
-// 4. CUSTOM NOTIFICATION SENDER (CUSTOM)
+// 4. CUSTOM NOTIFICATION SENDER (CUSTOM / ROOM CREDENTIALS)
 // =================================================================
 /**
  * Supports:
- * - All users (broadcast)
- * - Specific user (targeted)
- * - Match participants (tournament players)
- * - title, message, optional image/deep link
- * - Idempotency event ID
- * - Type: CUSTOM
+ * - ADMIN / SUPERADMIN: All users (broadcast), Specific user, or Match participants
+ * - STAFF: Match participants ONLY for matches of their assigned game (Room ID / Password)
+ * - Server-side recipient resolution from registrations
  */
 app.post('/api/notifications/send-custom', async (req, res) => {
   try {
+    const caller = await verifyAuthCaller(req);
+    if (!caller.authenticated) {
+      res.status(caller.statusCode || 401).json({ success: false, error: caller.error });
+      return;
+    }
+
+    if (!caller.isAdmin && !caller.isStaff) {
+      res.status(403).json({ success: false, error: 'Forbidden: Insufficient permissions to send notifications.' });
+      return;
+    }
+
     const {
       eventId,
       targetType = 'all', // 'all' | 'user' | 'match'
@@ -1990,6 +2613,55 @@ app.post('/api/notifications/send-custom', async (req, res) => {
     const cleanMessage = String(message).trim();
     const cleanEventId = eventId ? String(eventId).trim() : `custom_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
+    const sb = getBackendSupabase();
+    if (!sb) {
+      res.status(500).json({ success: false, error: 'Database service unavailable.' });
+      return;
+    }
+
+    // ---------------------------------------------------------------
+    // STRICT STAFF NOTIFICATION POLICY ENFORCEMENT
+    // ---------------------------------------------------------------
+    if (caller.isStaff) {
+      // 1. Staff may ONLY target a specific match
+      if (targetType !== 'match' || !targetMatchId) {
+        res.status(403).json({
+          success: false,
+          error: 'STAFF permission policy: Staff members may ONLY send notifications to registered participants of a specific match (targetType must be "match" with a valid targetMatchId).'
+        });
+        return;
+      }
+
+      // 2. Unassigned staff account is completely denied
+      if (!caller.assignedGame || caller.assignedGame.trim().toLowerCase() === 'not assigned') {
+        res.status(403).json({
+          success: false,
+          error: 'STAFF permission policy: Your staff account has no assigned game. Contact an administrator.'
+        });
+        return;
+      }
+
+      // 3. Verify target match and game match
+      const { data: matchDoc, error: matchErr } = await sb
+        .from('tournaments')
+        .select('id, title, game, game_category')
+        .eq('id', targetMatchId)
+        .maybeSingle();
+
+      if (matchErr || !matchDoc) {
+        res.status(404).json({ success: false, error: `Match with ID ${targetMatchId} not found.` });
+        return;
+      }
+
+      if (!isStaffGameMatch(caller.assignedGame, matchDoc.game, matchDoc.game_category)) {
+        res.status(403).json({
+          success: false,
+          error: `STAFF permission policy: You are assigned to "${caller.assignedGame}" and cannot send notifications for "${matchDoc.game || 'other game'}" matches.`
+        });
+        return;
+      }
+    }
+
     // Idempotency check
     if (!force && processedEventIds.has(cleanEventId)) {
       console.log(`[Custom Notification] Duplicate prevented for event ${cleanEventId}`);
@@ -2002,11 +2674,17 @@ app.post('/api/notifications/send-custom', async (req, res) => {
       return;
     }
 
-    // Resolve tokens based on targetType
+    // ---------------------------------------------------------------
+    // RECIPIENT LIST GENERATION (SERVER-SIDE ONLY)
+    // ---------------------------------------------------------------
     let targetTokens: string[] = [];
     let recipientSummary = '';
 
     if (targetType === 'user') {
+      if (!caller.isAdmin) {
+        res.status(403).json({ success: false, error: 'STAFF permission policy: Staff cannot send to arbitrary individual users.' });
+        return;
+      }
       if (!targetUserId) {
         res.status(400).json({ success: false, error: 'targetUserId is required when targetType is user.' });
         return;
@@ -2020,11 +2698,47 @@ app.post('/api/notifications/send-custom', async (req, res) => {
         return;
       }
       const mid = String(targetMatchId).trim();
-      const matchData = await getFCMTokensForMatchParticipants(mid);
-      targetTokens = matchData.tokens;
-      recipientSummary = `Match ${mid} (${matchData.userIds.length} participants)`;
+
+      // Fetch participants SERVER-SIDE from registrations table
+      const { data: regs, error: regsErr } = await sb
+        .from('registrations')
+        .select('user_id')
+        .eq('tournament_id', mid);
+
+      if (regsErr) {
+        console.warn(`[Custom Notification] Error querying registrations for ${mid}:`, regsErr.message);
+      }
+
+      const participantUserIds: string[] = Array.from(
+        new Set((regs || []).map((r: any) => String(r.user_id || '')).filter(Boolean))
+      );
+
+      if (participantUserIds.length === 0) {
+        processedEventIds.set(cleanEventId, { timestamp: Date.now(), type: 'CUSTOM', count: 0 });
+        res.json({
+          success: false,
+          noTokens: true,
+          eventId: cleanEventId,
+          recipientSummary: `Match ${mid} (0 registered participants)`,
+          message: `No registered players found for match ${mid}.`
+        });
+        return;
+      }
+
+      const tokens = new Set<string>();
+      for (const uid of participantUserIds) {
+        const uTokens = await getFCMTokensForUser(String(uid));
+        uTokens.forEach(t => tokens.add(t));
+      }
+
+      targetTokens = Array.from(tokens).filter(t => isValidFcmRegistrationToken(t));
+      recipientSummary = `Match ${mid} (${participantUserIds.length} registered participants)`;
     } else {
       // 'all'
+      if (!caller.isAdmin) {
+        res.status(403).json({ success: false, error: 'STAFF permission policy: Staff cannot broadcast to all users.' });
+        return;
+      }
       targetTokens = await getAllFCMTokens();
       recipientSummary = 'All active app users';
     }

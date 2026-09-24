@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { ResultRequest, ResultRequestStatus, Tournament } from '../../types';
+import { normalizePublicMatchId } from '../../services/supabaseService';
 import {
   Trophy,
   CheckCircle2,
@@ -61,6 +62,37 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
+  const isStaff = currentUser?.role === 'staff';
+
+  // Automatically fetch/refresh latest result requests when mounting the Result Verification page
+  React.useEffect(() => {
+    if (onRefresh) {
+      onRefresh();
+    }
+  }, []);
+
+  const formatAdminFriendlyError = (err: any): string => {
+    if (!err) return 'An unexpected error occurred. Please try again.';
+    const msg = typeof err === 'string' ? err : err.message || '';
+    if (msg.includes('permission denied') || msg.includes('42501') || msg.includes('Only Admin')) {
+      return 'Permission Denied: Only Admin or Superadmin can review and publish match results.';
+    }
+    if (msg.includes('Staff users are strictly forbidden') || msg.includes('Staff users cannot')) {
+      return 'Permission Denied: Staff accounts cannot approve or reject match results.';
+    }
+    if (msg.includes('already officially published') || msg.includes('already published')) {
+      return 'Results for this tournament are already officially published.';
+    }
+    if (msg.includes('No valid registered player IDs') || msg.includes('No valid player user IDs')) {
+      return 'No valid registered player IDs found in this submission. Please verify player accounts.';
+    }
+    if (msg.includes('not found') || msg.includes('PGRST116')) {
+      return 'The requested result verification record was not found.';
+    }
+    const cleaned = msg.replace(/\(code\s+[A-Z0-9_]+\)/gi, '').replace(/PGRST\d+/gi, '').trim();
+    return cleaned || 'Unable to complete the verification request. Please try again.';
+  };
+
   // Filtered staff list for dropdown filter
   const uniqueStaffList = useMemo(() => {
     const map = new Map<string, string>();
@@ -79,7 +111,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
 
   // Filtered requests list
   const filteredRequests = useMemo(() => {
-    return requests.filter(req => {
+    const list = requests.filter(req => {
       // 1. Status tab filter
       if (activeTab === 'pending' && req.status !== 'PENDING') return false;
       if (activeTab === 'approved' && req.status !== 'APPROVED') return false;
@@ -92,7 +124,8 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchTitle = (req.matchTitle || '').toLowerCase();
-        const matchId = (req.matchId || '').toLowerCase();
+        const rawMatchId = (req.matchId || '').toLowerCase();
+        const normMatchId = (normalizePublicMatchId(req.matchId) || '').toLowerCase();
         const reqId = (req.id || '').toLowerCase();
         const staffName = (req.submittedByStaffName || '').toLowerCase();
         const staffId = (req.submittedByStaffId || '').toLowerCase();
@@ -100,7 +133,8 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
 
         return (
           matchTitle.includes(q) ||
-          matchId.includes(q) ||
+          rawMatchId.includes(q) ||
+          normMatchId.includes(q) ||
           reqId.includes(q) ||
           staffName.includes(q) ||
           staffId.includes(q) ||
@@ -110,6 +144,8 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
 
       return true;
     });
+    console.log('[RESULT VERIFY] ResultRequestsManagement rendered cards count:', list.length, 'Total input requests:', requests.length);
+    return list;
   }, [requests, activeTab, selectedStaffFilter, searchQuery]);
 
   // Handle Approve Action
@@ -128,7 +164,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
       }
     } catch (err: any) {
       console.error('[ResultRequests] Approve error:', err);
-      setActionError(err?.message || 'Failed to approve and publish match result.');
+      setActionError(formatAdminFriendlyError(err));
     } finally {
       setIsProcessing(false);
     }
@@ -156,7 +192,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
       }
     } catch (err: any) {
       console.error('[ResultRequests] Reject error:', err);
-      setActionError(err?.message || 'Failed to reject match result request.');
+      setActionError(formatAdminFriendlyError(err));
     } finally {
       setIsProcessing(false);
     }
@@ -171,17 +207,31 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
         day: 'numeric',
         month: 'short',
         year: 'numeric',
-        hour: '2-digit',
+        hour: 'numeric',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
+        timeZone: 'Asia/Kolkata'
       });
     } catch {
       return dateStr;
     }
   };
 
+  // Requirement 8: Diagnostic log immediately before JSX return
+  console.log('[RESULT VERIFY JSX] final requests.length:', requests.length, 'filteredRequests.length:', filteredRequests.length, 'activeTab:', activeTab);
+  requests.forEach(r => {
+    console.log('[RESULT VERIFY JSX] request.id:', r.id, 'request.matchId:', r.matchId, 'request.matchTitle:', r.matchTitle, 'request.status:', r.status);
+  });
+
   return (
     <div className="space-y-4 p-3 sm:p-5 max-w-7xl mx-auto pb-20">
+      {/* Requirement 7: Obvious diagnostic card at exact location */}
+      {requests.length > 0 && (
+        <div className="p-3 bg-amber-500/20 border-2 border-amber-500 rounded-xl text-amber-300 font-mono text-xs flex items-center justify-between">
+          <span>PENDING RESULT — WX7-0809-002 — TT (Found {requests.length} requests in state)</span>
+          <span className="px-2 py-0.5 bg-amber-500 text-black font-bold rounded">DIAGNOSTIC CARD</span>
+        </div>
+      )}
       {/* Top Banner Header */}
       <div className="relative overflow-hidden rounded-2xl bg-[#141215] p-4 sm:p-6 border border-[#29252A] shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
@@ -373,6 +423,8 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
       ) : (
         <div className="grid grid-cols-1 gap-3.5">
           {filteredRequests.map((req) => {
+            // Requirement 9: Log inside map callback
+            console.log('[RESULT VERIFY JSX MAP] Entering JSX render for request:', req.id, req.matchId, req.matchTitle, req.matchCategory, req.status);
             const isPending = req.status === 'PENDING';
             const isApproved = req.status === 'APPROVED';
             const isRejected = req.status === 'REJECTED';
@@ -402,7 +454,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                       <h3 className="text-sm font-extrabold text-[#F5F5F5] flex items-center gap-2">
                         {req.matchTitle}
                         <span className="text-[10px] font-mono text-[#777278] font-normal">
-                          (ID: {req.matchId})
+                          (ID: {normalizePublicMatchId(req.matchId) || req.matchId})
                         </span>
                       </h3>
                       <div className="flex flex-wrap items-center gap-2 text-[10px] text-[#B0ACB0] mt-0.5">
@@ -534,7 +586,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                     <span>VIEW RESULT</span>
                   </button>
 
-                  {isPending && (
+                  {isPending && !isStaff && (
                     <>
                       <button
                         type="button"
@@ -582,7 +634,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                     {viewingRequest.matchTitle}
                   </h3>
                   <p className="text-[11px] text-[#B0ACB0]">
-                    Match ID: <span className="font-mono text-[#C9A34E] font-bold">{viewingRequest.matchId}</span> • Submitted by {viewingRequest.submittedByStaffName}
+                    Match ID: <span className="font-mono text-[#C9A34E] font-bold">{normalizePublicMatchId(viewingRequest.matchId) || viewingRequest.matchId}</span> • Submitted by {viewingRequest.submittedByStaffName}
                   </p>
                 </div>
               </div>
@@ -660,6 +712,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                       <tr>
                         <th className="p-2.5">Rank</th>
                         <th className="p-2.5">Player / Username</th>
+                        <th className="p-2.5">Email</th>
                         <th className="p-2.5">In-game IGN</th>
                         <th className="p-2.5 text-center">Kills</th>
                         <th className="p-2.5 text-right">Prize Won (₹)</th>
@@ -690,7 +743,10 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                               )}
                             </td>
                             <td className="p-2.5 font-semibold text-[#F5F5F5]">
-                              {p.username || p.displayName || 'Player'}
+                              {p.username || p.displayName || p.name || 'Player'}
+                            </td>
+                            <td className="p-2.5 text-[#B0ACB0] font-medium">
+                              {p.email || 'N/A'}
                             </td>
                             <td className="p-2.5 font-extrabold text-[#C9A34E]">
                               {p.inGameName || p.gameIgn || 'N/A'}
@@ -720,7 +776,7 @@ export const ResultRequestsManagement: React.FC<ResultRequestsManagementProps> =
                 Close
               </button>
 
-              {viewingRequest.status === 'PENDING' && (
+              {viewingRequest.status === 'PENDING' && !isStaff && (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"

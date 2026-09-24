@@ -2,27 +2,35 @@ export type AdminRole = 'superadmin' | 'admin' | 'staff';
 export type AdminStatus = 'active' | 'inactive';
 
 export type StaffStatus = 'ACTIVE' | 'SUSPENDED' | 'REMOVED';
+export type StaffAssignedGame = 'Free Fire' | 'BGMI' | 'All' | 'Not Assigned';
 
 export interface StaffMember {
   id: string;
+  staffRecordId?: string;
+  staff_member_id?: string;
   staffId?: string;
   staff_id?: string;
   userId: string;
   user_id?: string;
   name: string;
   displayName?: string;
+  username?: string;
   email: string;
   phone?: string;
-  ffUid?: string;
-  ff_uid?: string;
   inGameId?: string;
   ffIgn?: string;
   ff_ign?: string;
+  bgmiIgn?: string;
+  bgmi_ign?: string;
   inGameName?: string;
   avatarUrl?: string;
   avatar_url?: string;
   role: 'STAFF';
   status: StaffStatus;
+  assignedGame?: 'Free Fire' | 'BGMI' | string;
+  assigned_game?: 'Free Fire' | 'BGMI' | string;
+  gameAssignment?: string;
+  game_assignment?: string;
   notes?: string;
   adminNotes?: string;
   joinedDate?: string;
@@ -39,6 +47,8 @@ export interface AdminUser {
   displayName: string;
   role: AdminRole;
   status: AdminStatus;
+  assignedGame?: 'Free Fire' | 'BGMI' | string;
+  assigned_game?: 'Free Fire' | 'BGMI' | string;
   avatarUrl?: string;
   createdAt: string;
   permissions: string[];
@@ -62,14 +72,14 @@ export interface AppUser {
   phone: string;
   inGameName: string;
   inGameId?: string;
-  ff_uid?: string;
   ff_ign?: string;
-  ffUid?: string;
   ffIgn?: string;
-  bgmi_uid?: string;
+  ff_uid?: string;
+  ffUid?: string;
   bgmi_ign?: string;
-  bgmiUid?: string;
   bgmiIgn?: string;
+  bgmi_uid?: string;
+  bgmiUid?: string;
   walletBalance: number;
   depositBalance?: number;
   unclaimedWinnings: number;
@@ -83,6 +93,10 @@ export interface AppUser {
   matchesWon: number;
   totalKills: number;
   status: UserStatus;
+  is_suspended?: boolean;
+  isSuspended?: boolean;
+  is_banned?: boolean;
+  is_blocked?: boolean;
   role?: string;
   isEmailVerified?: boolean;
   isPhoneVerified?: boolean;
@@ -97,6 +111,7 @@ export interface AppUser {
   profileImage?: string;
   avatar?: string;
   banReason?: string;
+  ban_reason?: string;
 }
 
 export interface UserWallet {
@@ -170,6 +185,8 @@ export interface SavedImage {
 
 export interface Tournament {
   id: string;
+  matchId?: string | null;
+  match_id?: string | null;
   title: string;
   game: GameCategory;
   gameCategory?: string;
@@ -192,6 +209,7 @@ export interface Tournament {
   perKillReward: number;
   perKillPrize?: number;
   startTime: string;
+  matchTime?: string;
   matchSchedule?: string;
   schedule?: string;
   maxSlots: number;
@@ -267,6 +285,8 @@ export interface ResultRequestParticipant {
 
 export interface ResultRequest {
   id: string;
+  tournamentId?: string;
+  tournament_id?: string;
   matchId: string;
   matchTitle: string;
   matchCategory?: string;
@@ -486,7 +506,14 @@ export interface SystemSettings {
   tournamentsEnabled?: boolean;
   registrationEnabled?: boolean;
   referralEnabled?: boolean;
+  // Remote App Version & Update Controls (Android User App)
+  latestAppVersion?: string;
+  minimumAppVersion?: string;
+  updateMessage?: string;
+  updateUrl?: string;
+  isForceUpdate?: boolean;
   minAppVersion?: string;
+  appVersion?: string;
   dailyWithdrawalLimit?: number;
   autoApproveWithdrawals?: boolean;
   autoApprovalMaxAmount?: number;
@@ -503,7 +530,6 @@ export interface SystemSettings {
   fairPlayRules?: string;
   termsAndFairPlayRulesText?: string;
   privacyPolicyText?: string;
-  appVersion?: string;
   firebaseConfigured?: boolean;
   firebaseProjectId?: string;
   [key: string]: any;

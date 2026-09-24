@@ -24,18 +24,25 @@ import {
   Info,
   Check,
   Slash,
-  Sparkles
+  Sparkles,
+  Flame,
+  Target,
+  Edit3,
+  ListTodo
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { AppUser, StaffMember, StaffStatus } from '../../types';
+import { AppUser, StaffMember, StaffStatus, StaffAssignedGame } from '../../types';
+import { supabase } from '../../services/supabase';
 import {
   fetchStaffMembersFromSupabase,
   createStaffMemberInSupabase,
   suspendStaffMemberInSupabase,
   reactivateStaffMemberInSupabase,
   removeStaffMemberInSupabase,
+  updateStaffMemberGameAssignmentInSupabase,
   formatStaffError
 } from '../../services/supabaseService';
+import { StaffDailyTasksCard } from './StaffDailyTasksCard';
 
 interface StaffManagementProps {
   users?: AppUser[];
@@ -60,17 +67,24 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | StaffStatus>('ALL');
+  const [gameFilter, setGameFilter] = useState<'ALL' | 'Free Fire' | 'BGMI' | 'NOT_ASSIGNED'>('ALL');
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [selectedUserForStaff, setSelectedUserForStaff] = useState<AppUser | null>(null);
+  const [selectedGameForStaff, setSelectedGameForStaff] = useState<'Free Fire' | 'BGMI'>('Free Fire');
   const [adminNotes, setAdminNotes] = useState('');
   const [isCreatingStaff, setIsCreatingStaff] = useState(false);
-  const [createResult, setCreateResult] = useState<{ staffId: string; user: AppUser } | null>(null);
+  const [createResult, setCreateResult] = useState<{ staffId: string; user: AppUser; assignedGame: string } | null>(null);
 
   // Details Modal
   const [selectedStaffDetails, setSelectedStaffDetails] = useState<StaffMember | null>(null);
+
+  // Edit Game Assignment Modal
+  const [staffToEditGame, setStaffToEditGame] = useState<StaffMember | null>(null);
+  const [editGameValue, setEditGameValue] = useState<'Free Fire' | 'BGMI'>('Free Fire');
+  const [isUpdatingGame, setIsUpdatingGame] = useState(false);
 
   // Action Modals (Suspend, Reactivate, Remove)
   const [staffToSuspend, setStaffToSuspend] = useState<StaffMember | null>(null);
@@ -117,7 +131,10 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
     const active = staffMembers.filter((s) => s.status === 'ACTIVE').length;
     const suspended = staffMembers.filter((s) => s.status === 'SUSPENDED').length;
     const removed = staffMembers.filter((s) => s.status === 'REMOVED').length;
-    return { total, active, suspended, removed };
+    const freeFire = staffMembers.filter((s) => s.assignedGame === 'Free Fire' || s.assigned_game === 'Free Fire').length;
+    const bgmi = staffMembers.filter((s) => s.assignedGame === 'BGMI' || s.assigned_game === 'BGMI').length;
+    const unassigned = staffMembers.filter((s) => !s.assignedGame && !s.assigned_game).length;
+    return { total, active, suspended, removed, freeFire, bgmi, unassigned };
   }, [staffMembers]);
 
   // Filtered Staff List
@@ -125,6 +142,18 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
     return staffMembers.filter((member) => {
       // Status Filter
       if (statusFilter !== 'ALL' && member.status !== statusFilter) {
+        return false;
+      }
+
+      // Game Filter
+      const memberGame = member.assignedGame || member.assigned_game;
+      if (gameFilter === 'Free Fire' && memberGame !== 'Free Fire') {
+        return false;
+      }
+      if (gameFilter === 'BGMI' && memberGame !== 'BGMI') {
+        return false;
+      }
+      if (gameFilter === 'NOT_ASSIGNED' && memberGame && memberGame !== 'Not Assigned') {
         return false;
       }
 
@@ -136,13 +165,14 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
         const emailMatch = (member.email || '').toLowerCase().includes(query);
         const phoneMatch = (member.phone || '').toLowerCase().includes(query);
         const ffIgnMatch = (member.ffIgn || member.ff_ign || member.inGameName || '').toLowerCase().includes(query);
+        const gameMatch = (memberGame || '').toLowerCase().includes(query);
 
-        return nameMatch || staffIdMatch || emailMatch || phoneMatch || ffIgnMatch;
+        return nameMatch || staffIdMatch || emailMatch || phoneMatch || ffIgnMatch || gameMatch;
       }
 
       return true;
     });
-  }, [staffMembers, statusFilter, searchQuery]);
+  }, [staffMembers, statusFilter, gameFilter, searchQuery]);
 
   // Eligible Users for "+ Add Staff" Flow
   const eligibleUsers = useMemo(() => {
@@ -189,7 +219,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
     return { isEligible: true };
   };
 
-  // Handler: Confirm Creation of Staff Member
+  // Handler: Confirm Creation of Staff Member with Game Assignment
   const handleCreateStaff = async () => {
     if (!selectedUserForStaff) return;
     if (!isSuperAdmin) {
@@ -202,7 +232,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
 
     try {
       const targetUserId = selectedUserForStaff.id || selectedUserForStaff.uid;
-      const res = await createStaffMemberInSupabase(targetUserId, adminNotes.trim());
+      const res = await createStaffMemberInSupabase(targetUserId, adminNotes.trim(), selectedGameForStaff);
 
       if (!res.success) {
         throw new Error(res.error || 'Failed to create staff member.');
@@ -211,17 +241,169 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
       const generatedId = res.staffId || 'WX7-STF-NEW';
       setCreateResult({
         staffId: generatedId,
-        user: selectedUserForStaff
+        user: selectedUserForStaff,
+        assignedGame: selectedGameForStaff
       });
 
       // Reload staff list
       await loadStaffMembers();
-      setActionSuccess(`Staff member created successfully with Staff ID: ${generatedId}`);
+      setActionSuccess(`Staff member created successfully! Appointed for ${selectedGameForStaff} with Staff ID: ${generatedId}`);
     } catch (err: any) {
       console.error('[StaffManagement] Create staff error:', err);
       setActionError(formatStaffError(err));
     } finally {
       setIsCreatingStaff(false);
+    }
+  };
+
+  // Handler: Open Edit Game Modal
+  const handleOpenEditGameModal = (staff: StaffMember, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setStaffToEditGame(staff);
+    const currentGame = (staff.assignedGame || staff.assigned_game) as 'Free Fire' | 'BGMI';
+    setEditGameValue(currentGame === 'BGMI' ? 'BGMI' : 'Free Fire');
+  };
+
+  // Handler: Confirm Update Game Assignment
+  const handleConfirmEditGame = async () => {
+    if (!staffToEditGame) return;
+    if (!isSuperAdmin) {
+      setActionError('Only SUPERADMIN can modify staff game assignments.');
+      return;
+    }
+
+    setIsUpdatingGame(true);
+    setActionError(null);
+
+    try {
+      const selectedGame = editGameValue;
+      if (selectedGame !== 'Free Fire' && selectedGame !== 'BGMI') {
+        throw new Error('Please select either "Free Fire" or "BGMI".');
+      }
+
+      // Requirement 6: Make sure the update is executed using the currently authenticated SUPERADMIN Supabase session.
+      const { data: sessionData, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr || !sessionData?.session) {
+        console.error('[StaffManagement] Supabase auth session error:', sessionErr);
+        throw new Error('Authenticated SUPERADMIN session required. Please re-login.');
+      }
+
+      console.log('[StaffManagement] Superadmin authenticated session:', {
+        user: sessionData.session.user?.email,
+        id: sessionData.session.user?.id
+      });
+
+      // Requirement 5: Make sure "staffId" is the "staff_members.id", NOT the user_id and NOT the staff_id text.
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const staffCode = staffToEditGame.staffId || staffToEditGame.staff_id;
+      const userUuid = staffToEditGame.userId || staffToEditGame.user_id;
+      let staffRowId = staffToEditGame.staffRecordId || staffToEditGame.staff_member_id || staffToEditGame.id;
+
+      console.log('[StaffManagement] Initial staff record for update:', {
+        selectedStaff: staffToEditGame,
+        candidateId: staffRowId,
+        staffCode,
+        userUuid,
+        selectedGame
+      });
+
+      // If staffRowId is not a valid UUID or matches user_id or staff_id text, query staff_members to resolve exact staff_members.id
+      if (!staffRowId || !UUID_REGEX.test(staffRowId) || staffRowId === staffCode || (userUuid && staffRowId === userUuid)) {
+        let lookupQuery = supabase.from('staff_members').select('id, user_id, staff_id');
+        if (staffCode) {
+          lookupQuery = lookupQuery.or(`staff_id.eq.${staffCode},staff_code.eq.${staffCode}`);
+        } else if (userUuid) {
+          lookupQuery = lookupQuery.eq('user_id', userUuid);
+        }
+        const { data: matchedRows, error: lookupErr } = await lookupQuery.limit(1);
+        if (lookupErr) {
+          console.error('[StaffManagement] Error resolving staff_members.id:', lookupErr);
+          throw new Error(`Database error resolving staff row: ${lookupErr.message}`);
+        }
+        if (matchedRows && matchedRows[0]?.id) {
+          staffRowId = matchedRows[0].id;
+        }
+      }
+
+      console.log('[StaffManagement] Authoritative staff_members row ID to update:', staffRowId);
+
+      // Requirement 1: supabase.from('staff_members').update({ assigned_game: selectedGame, updated_at: new Date().toISOString() }).eq('id', staffId)
+      const updatePayload = {
+        assigned_game: selectedGame,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('staff_members')
+        .update(updatePayload)
+        .eq('id', staffRowId)
+        .select();
+
+      // Log exact staff row ID and update response
+      console.log('[StaffManagement] Supabase update response:', {
+        staffRowId,
+        selectedGame,
+        data,
+        error
+      });
+
+      // Requirement 2 & 3: Check returned { data, error }. If error exists, display REAL Supabase error message and do not show success.
+      if (error) {
+        console.error('[StaffManagement] Direct Supabase update error:', error);
+        throw new Error(error.message || error.details || 'Supabase database update failed');
+      }
+
+      if (!data || data.length === 0) {
+        console.warn('[StaffManagement] 0 rows matched by id:', staffRowId, '- attempting fallback by user_id/staff_id');
+        let fallbackMatched = false;
+        if (userUuid) {
+          const { data: fbDataUser, error: fbErrUser } = await supabase
+            .from('staff_members')
+            .update(updatePayload)
+            .eq('user_id', userUuid)
+            .select();
+          if (!fbErrUser && fbDataUser && fbDataUser.length > 0) {
+            fallbackMatched = true;
+            console.log('[StaffManagement] Fallback updated by user_id:', fbDataUser);
+          }
+        }
+        if (!fallbackMatched && staffCode) {
+          const { data: fbDataCode, error: fbErrCode } = await supabase
+            .from('staff_members')
+            .update(updatePayload)
+            .or(`staff_id.eq.${staffCode},staff_code.eq.${staffCode}`)
+            .select();
+          if (!fbErrCode && fbDataCode && fbDataCode.length > 0) {
+            fallbackMatched = true;
+            console.log('[StaffManagement] Fallback updated by staffCode:', fbDataCode);
+          }
+        }
+
+        if (!fallbackMatched) {
+          throw new Error(`No staff record found in public.staff_members matching ID "${staffRowId}". Ensure the record exists in Supabase.`);
+        }
+      }
+
+      // Also update profiles for consistency if userUuid is present
+      if (userUuid) {
+        try {
+          await supabase.from('profiles').update({ assigned_game: selectedGame }).eq('id', userUuid);
+        } catch (profileUpdateErr) {
+          console.debug('[StaffManagement] Optional profile update notice:', profileUpdateErr);
+        }
+      }
+
+      setActionSuccess(`Game assignment for ${staffToEditGame.name || staffCode || 'staff'} successfully updated to ${selectedGame}!`);
+      setStaffToEditGame(null);
+
+      // Requirement 4: After successful update, re-fetch "staff_members" and update the UI from the database response.
+      await loadStaffMembers(true);
+    } catch (err: any) {
+      console.error('[StaffManagement] Edit game assignment error:', err);
+      // Requirement 3 & 8: Display the REAL Supabase error message, do not silently catch/ignore
+      setActionError(err?.message || 'Failed to update game assignment.');
+    } finally {
+      setIsUpdatingGame(false);
     }
   };
 
@@ -476,7 +658,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
       </div>
 
       {/* Summary Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
         {/* Total Staff */}
         <div className="p-4 rounded-2xl bg-[#141215] border border-[#29252A] flex items-center justify-between">
           <div>
@@ -485,6 +667,32 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
           </div>
           <div className="w-10 h-10 rounded-xl bg-[#1B181C] border border-[#29252A] flex items-center justify-center text-[#B0ACB0]">
             <Users className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* Free Fire Staff */}
+        <div className="p-4 rounded-2xl bg-[#141215] border border-orange-500/30 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-orange-400 uppercase tracking-wider flex items-center gap-1">
+              <Flame className="w-3 h-3" /> Free Fire
+            </p>
+            <h3 className="text-2xl font-black text-orange-400 mt-1">{stats.freeFire}</h3>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-orange-950/40 border border-orange-500/40 flex items-center justify-center text-orange-400">
+            <Flame className="w-5 h-5" />
+          </div>
+        </div>
+
+        {/* BGMI Staff */}
+        <div className="p-4 rounded-2xl bg-[#141215] border border-amber-500/30 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+              <Gamepad2 className="w-3 h-3" /> BGMI
+            </p>
+            <h3 className="text-2xl font-black text-amber-400 mt-1">{stats.bgmi}</h3>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-950/40 border border-amber-500/40 flex items-center justify-center text-amber-400">
+            <Gamepad2 className="w-5 h-5" />
           </div>
         </div>
 
@@ -509,28 +717,17 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
             <Ban className="w-5 h-5" />
           </div>
         </div>
-
-        {/* Removed */}
-        <div className="p-4 rounded-2xl bg-[#141215] border border-[#350A12] flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Removed</p>
-            <h3 className="text-2xl font-black text-rose-300 mt-1">{stats.removed}</h3>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-[#350A12] border border-rose-700/50 flex items-center justify-center text-rose-400">
-            <Slash className="w-5 h-5" />
-          </div>
-        </div>
       </div>
 
       {/* Search and Filters Section */}
-      <div className="p-4 rounded-2xl bg-[#141215] border border-[#29252A] flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      <div className="p-4 rounded-2xl bg-[#141215] border border-[#29252A] flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
         {/* Search Bar */}
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-[#777278] absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             id="staff-search-input"
             type="text"
-            placeholder="Search by name, Staff ID, email, phone, FF UID, FF IGN..."
+            placeholder="Search by name, Staff ID, email, phone, game, IGN..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 bg-[#0D0B0D] border border-[#29252A] rounded-xl text-xs text-white placeholder-purple-400/60 focus:outline-none focus:border-[#C9A34E] transition"
@@ -545,8 +742,45 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
           )}
         </div>
 
-        {/* Status Filter Buttons */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+        {/* Filter Badges & Game Filters */}
+        <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0">
+          {/* Game Filters */}
+          <div className="flex items-center gap-1 bg-[#0D0B0D] p-1 rounded-xl border border-[#29252A]">
+            <button
+              onClick={() => setGameFilter('ALL')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex-shrink-0 cursor-pointer ${
+                gameFilter === 'ALL'
+                  ? 'bg-amber-400 text-black font-extrabold shadow'
+                  : 'text-[#B0ACB0] hover:text-white'
+              }`}
+            >
+              All Games
+            </button>
+            <button
+              onClick={() => setGameFilter('Free Fire')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex-shrink-0 flex items-center gap-1 cursor-pointer ${
+                gameFilter === 'Free Fire'
+                  ? 'bg-orange-500 text-white font-extrabold shadow'
+                  : 'text-orange-400 hover:text-orange-300'
+              }`}
+            >
+              <Flame className="w-3 h-3" />
+              Free Fire
+            </button>
+            <button
+              onClick={() => setGameFilter('BGMI')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex-shrink-0 flex items-center gap-1 cursor-pointer ${
+                gameFilter === 'BGMI'
+                  ? 'bg-amber-500 text-black font-extrabold shadow'
+                  : 'text-amber-400 hover:text-amber-300'
+              }`}
+            >
+              <Gamepad2 className="w-3 h-3" />
+              BGMI
+            </button>
+          </div>
+
+          {/* Status Filter Buttons */}
           {(['ALL', 'ACTIVE', 'SUSPENDED', 'REMOVED'] as const).map((st) => (
             <button
               key={st}
@@ -586,11 +820,11 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
           </div>
           <h3 className="text-base font-bold text-white">No Staff Members Found</h3>
           <p className="text-xs text-[#B0ACB0]/70 max-w-sm mx-auto">
-            {searchQuery || statusFilter !== 'ALL'
+            {searchQuery || statusFilter !== 'ALL' || gameFilter !== 'ALL'
               ? 'No staff members match the current search filters. Try adjusting your query.'
               : 'No staff accounts have been added yet. Click "+ Add Staff" to search and appoint a WinX7 user as tournament staff.'}
           </p>
-          {!searchQuery && statusFilter === 'ALL' && (
+          {!searchQuery && statusFilter === 'ALL' && gameFilter === 'ALL' && (
             <button
               onClick={() => {
                 setSelectedUserForStaff(null);
@@ -613,6 +847,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
               <thead className="bg-[#0D0B0D] border-b border-[#29252A] text-[#B0ACB0] uppercase tracking-wider font-extrabold text-[10px]">
                 <tr>
                   <th className="px-4 py-3.5">Staff Name & ID</th>
+                  <th className="px-4 py-3.5">Assigned Game</th>
                   <th className="px-4 py-3.5">Contact Info</th>
                   <th className="px-4 py-3.5">In-Game Name (IGN)</th>
                   <th className="px-4 py-3.5">Role</th>
@@ -624,8 +859,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
               <tbody className="divide-y divide-purple-900/30">
                 {filteredStaff.map((staff) => {
                   const staffDisplayId = staff.staffId || staff.staff_id || staff.id;
-                  const isSuspended = staff.status === 'SUSPENDED';
-                  const isRemoved = staff.status === 'REMOVED';
+                  const assignedGame = staff.assignedGame || staff.assigned_game;
 
                   return (
                     <tr
@@ -652,6 +886,35 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                         </div>
                       </td>
 
+                      {/* Assigned Game */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          {assignedGame === 'Free Fire' ? (
+                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider inline-flex items-center gap-1 bg-orange-950/60 text-orange-400 border border-orange-600/50">
+                              <Flame className="w-3 h-3 text-orange-400" />
+                              Free Fire
+                            </span>
+                          ) : assignedGame === 'BGMI' ? (
+                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider inline-flex items-center gap-1 bg-amber-950/60 text-amber-400 border border-amber-500/50">
+                              <Gamepad2 className="w-3 h-3 text-amber-400" />
+                              BGMI
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-semibold text-[#777278] bg-[#0D0B0D] border border-[#29252A]">
+                              Not Assigned
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEditGameModal(staff, e)}
+                            className="p-1 rounded-md text-[#777278] hover:text-[#C9A34E] hover:bg-[#1B181C] transition opacity-70 group-hover:opacity-100"
+                            title="Edit Game Assignment"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </td>
+
                       {/* Email & Phone */}
                       <td className="px-4 py-3.5">
                         <div className="space-y-0.5">
@@ -670,7 +933,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                       <td className="px-4 py-3.5">
                         <p className="font-bold text-[#F5F5F5] flex items-center gap-1.5 truncate">
                           <Gamepad2 className="w-3.5 h-3.5 text-[#C9A34E] flex-shrink-0" />
-                          <span className="truncate">{staff.ffIgn || staff.ff_ign || staff.inGameName || 'No IGN'}</span>
+                          <span className="truncate">{staff.bgmiIgn || staff.bgmi_ign || staff.ffIgn || staff.ff_ign || staff.inGameName || 'No IGN'}</span>
                         </p>
                       </td>
 
@@ -722,6 +985,15 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                             title="View Staff Profile"
                           >
                             <Eye className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEditGameModal(staff, e)}
+                            className="p-1.5 rounded-lg bg-amber-400/10 hover:bg-amber-400 hover:text-black text-[#C9A34E] border border-amber-400/30 transition"
+                            title="Edit Game Assignment"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
 
                           {staff.status === 'ACTIVE' && (
@@ -780,6 +1052,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:hidden gap-3.5">
             {filteredStaff.map((staff) => {
               const staffDisplayId = staff.staffId || staff.staff_id || staff.id;
+              const assignedGame = staff.assignedGame || staff.assigned_game;
 
               return (
                 <div
@@ -801,10 +1074,23 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                         <p className="font-mono text-xs font-bold text-[#C9A34E]">
                           {staffDisplayId}
                         </p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-[#141215]/80 text-[#C9A34E] border border-[#C9A34E]/30">
                             STAFF
                           </span>
+                          {assignedGame === 'Free Fire' ? (
+                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase inline-flex items-center gap-0.5 bg-orange-950/80 text-orange-400 border border-orange-600/40">
+                              <Flame className="w-2.5 h-2.5" /> Free Fire
+                            </span>
+                          ) : assignedGame === 'BGMI' ? (
+                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase inline-flex items-center gap-0.5 bg-amber-950/80 text-amber-400 border border-amber-500/40">
+                              <Gamepad2 className="w-2.5 h-2.5" /> BGMI
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[9px] font-semibold text-[#777278] bg-[#0D0B0D] border border-[#29252A]">
+                              Not Assigned
+                            </span>
+                          )}
                           <span
                             className={`px-2 py-0.5 rounded text-[9px] font-black uppercase border ${
                               staff.status === 'ACTIVE'
@@ -837,7 +1123,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                     <div className="col-span-2">
                       <span className="text-[10px] text-[#777278] block font-semibold">In-Game Name (IGN)</span>
                       <span className="text-[#F5F5F5] font-bold truncate block text-[11px]">
-                        {staff.ffIgn || staff.ff_ign || staff.inGameName || 'N/A'}
+                        {staff.bgmiIgn || staff.bgmi_ign || staff.ffIgn || staff.ff_ign || staff.inGameName || 'N/A'}
                       </span>
                     </div>
                   </div>
@@ -849,22 +1135,31 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                   >
                     <button
                       onClick={() => setSelectedStaffDetails(staff)}
-                      className="flex-1 py-1.5 px-3 rounded-xl bg-[#0D0B0D] hover:bg-[#141215] text-[#B0ACB0] font-bold text-xs border border-[#29252A] text-center transition"
+                      className="flex-1 py-1.5 px-2 rounded-xl bg-[#0D0B0D] hover:bg-[#141215] text-[#B0ACB0] font-bold text-xs border border-[#29252A] text-center transition"
                     >
-                      View Details
+                      Details
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenEditGameModal(staff, e)}
+                      className="py-1.5 px-2.5 rounded-xl bg-amber-400/15 hover:bg-amber-400 hover:text-black text-[#C9A34E] font-bold text-xs border border-amber-400/30 transition flex items-center gap-1"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      <span>Game</span>
                     </button>
 
                     {staff.status === 'ACTIVE' && (
                       <>
                         <button
                           onClick={() => setStaffToSuspend(staff)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-950/80 hover:bg-amber-900/80 text-[#C9A34E] border border-amber-800 font-bold text-xs transition"
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-950/80 hover:bg-amber-900/80 text-[#C9A34E] border border-amber-800 font-bold text-xs transition"
                         >
                           Suspend
                         </button>
                         <button
                           onClick={() => setStaffToRemove(staff)}
-                          className="p-2 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition"
+                          className="p-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition"
                           title="Remove Staff"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -876,13 +1171,13 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                       <>
                         <button
                           onClick={() => setStaffToReactivate(staff)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-950/80 hover:bg-emerald-700 text-emerald-300 hover:text-white border border-emerald-700/60 font-bold text-xs transition"
+                          className="px-2.5 py-1.5 rounded-xl bg-emerald-950/80 hover:bg-emerald-700 text-emerald-300 hover:text-white border border-emerald-700/60 font-bold text-xs transition"
                         >
                           Reactivate
                         </button>
                         <button
                           onClick={() => setStaffToRemove(staff)}
-                          className="p-2 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition"
+                          className="p-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 transition"
                           title="Remove Staff"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -938,11 +1233,23 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                   <h4 className="text-base font-extrabold text-white">
                     Staff Member Successfully Created!
                   </h4>
-                  <div className="inline-block px-4 py-1.5 rounded-xl bg-amber-400/20 border border-amber-400/40 text-[#C9A34E] font-mono font-black text-sm">
-                    Staff ID: {createResult.staffId}
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <div className="inline-block px-4 py-1.5 rounded-xl bg-amber-400/20 border border-amber-400/40 text-[#C9A34E] font-mono font-black text-sm">
+                      Staff ID: {createResult.staffId}
+                    </div>
+                    {createResult.assignedGame && (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-900/40 border border-[#C9A34E]/40 text-[#C9A34E] font-black text-xs">
+                        {createResult.assignedGame === 'Free Fire' ? (
+                          <Flame className="w-3.5 h-3.5 text-orange-400" />
+                        ) : (
+                          <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+                        )}
+                        <span>{createResult.assignedGame}</span>
+                      </div>
+                    )}
                   </div>
                   <p className="text-xs text-[#B0ACB0]/90 max-w-md mx-auto">
-                    <strong>{createResult.user.username || createResult.user.displayName}</strong> can now log into the separate <strong>WinX7 Staff App</strong> with role <strong className="text-[#C9A34E]">STAFF</strong>.
+                    <strong>{createResult.user.username || createResult.user.displayName}</strong> can now log into the separate <strong>WinX7 Staff App</strong> with role <strong className="text-[#C9A34E]">STAFF</strong> assigned to <strong className="text-white">{createResult.assignedGame || 'the selected game'}</strong>.
                   </p>
                 </div>
 
@@ -953,6 +1260,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                       setCreateResult(null);
                       setUserSearchQuery('');
                       setAdminNotes('');
+                      setSelectedGameForStaff('Free Fire');
                     }}
                     className="px-4 py-2.5 rounded-xl bg-[#0D0B0D] hover:bg-[#141215] text-[#B0ACB0] text-xs font-bold transition"
                   >
@@ -1099,6 +1407,79 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                   </div>
                 </div>
 
+                {/* Game Assignment Selection (Required) */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-white flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+                      Game Assignment <span className="text-amber-400">*</span>
+                    </span>
+                    <span className="text-[10px] text-[#777278] font-normal">Select which game this staff manages</span>
+                  </label>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Free Fire Option */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGameForStaff('Free Fire')}
+                      className={`p-3.5 rounded-2xl border text-left transition relative cursor-pointer ${
+                        selectedGameForStaff === 'Free Fire'
+                          ? 'bg-gradient-to-br from-orange-950/60 to-purple-950/40 border-orange-500 ring-2 ring-orange-500/30'
+                          : 'bg-[#0D0B0D] border-[#29252A] hover:border-[#29252A]/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                            selectedGameForStaff === 'Free Fire' ? 'bg-orange-500 text-white shadow-md shadow-orange-950' : 'bg-[#1B181C] text-[#B0ACB0]'
+                          }`}>
+                            <Flame className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h5 className="font-extrabold text-xs text-white">Free Fire</h5>
+                            <span className="text-[10px] text-[#B0ACB0]">Garena Free Fire MAX</span>
+                          </div>
+                        </div>
+                        {selectedGameForStaff === 'Free Fire' && (
+                          <div className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center">
+                            <Check className="w-3 h-3 stroke-[3]" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+
+                    {/* BGMI Option */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGameForStaff('BGMI')}
+                      className={`p-3.5 rounded-2xl border text-left transition relative cursor-pointer ${
+                        selectedGameForStaff === 'BGMI'
+                          ? 'bg-gradient-to-br from-amber-950/60 to-purple-950/40 border-amber-400 ring-2 ring-amber-400/30'
+                          : 'bg-[#0D0B0D] border-[#29252A] hover:border-[#29252A]/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                            selectedGameForStaff === 'BGMI' ? 'bg-amber-400 text-black shadow-md shadow-amber-950' : 'bg-[#1B181C] text-[#B0ACB0]'
+                          }`}>
+                            <Gamepad2 className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h5 className="font-extrabold text-xs text-white">BGMI</h5>
+                            <span className="text-[10px] text-[#B0ACB0]">Battlegrounds Mobile</span>
+                          </div>
+                        </div>
+                        {selectedGameForStaff === 'BGMI' && (
+                          <div className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center">
+                            <Check className="w-3 h-3 stroke-[3]" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Admin Notes Input */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-[#B0ACB0]">
@@ -1207,6 +1588,34 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                   <span className="font-bold text-[#C9A34E]">STAFF</span>
                 </div>
                 <div>
+                  <span className="text-[10px] text-[#777278] block font-semibold">Assigned Game</span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {selectedStaffDetails.assignedGame === 'Free Fire' || selectedStaffDetails.assigned_game === 'Free Fire' ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase inline-flex items-center gap-1 bg-orange-950/60 text-orange-400 border border-orange-600/50">
+                        <Flame className="w-3 h-3 text-orange-400" />
+                        Free Fire
+                      </span>
+                    ) : selectedStaffDetails.assignedGame === 'BGMI' || selectedStaffDetails.assigned_game === 'BGMI' ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase inline-flex items-center gap-1 bg-amber-950/60 text-amber-400 border border-amber-500/50">
+                        <Gamepad2 className="w-3 h-3 text-amber-400" />
+                        BGMI
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold text-[#777278] bg-[#0D0B0D] border border-[#29252A]">
+                        Not Assigned
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenEditGameModal(selectedStaffDetails, e)}
+                      className="px-2 py-0.5 rounded-md bg-amber-400/20 hover:bg-amber-400 hover:text-black text-[#C9A34E] text-[10px] font-bold border border-amber-400/30 transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Edit3 className="w-2.5 h-2.5" />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                </div>
+                <div>
                   <span className="text-[10px] text-[#777278] block font-semibold">Status</span>
                   <span
                     className={`font-black uppercase inline-block text-[11px] ${
@@ -1231,7 +1640,7 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                 <div>
                   <span className="text-[10px] text-[#777278] block font-semibold">In-Game Name (IGN)</span>
                   <span className="font-bold text-[#F5F5F5]">
-                    {selectedStaffDetails.ffIgn || selectedStaffDetails.ff_ign || selectedStaffDetails.inGameName || 'N/A'}
+                    {selectedStaffDetails.bgmiIgn || selectedStaffDetails.bgmi_ign || selectedStaffDetails.ffIgn || selectedStaffDetails.ff_ign || selectedStaffDetails.inGameName || 'N/A'}
                   </span>
                 </div>
                 <div>
@@ -1253,89 +1662,19 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
               </div>
             </div>
 
-            {/* Read-Only Permission Scope */}
-            <div className="space-y-2">
+
+
+            {/* Assigned Staff Daily Tasks & Performance Management */}
+            <div className="space-y-2 pt-2">
               <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#B0ACB0] flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#C9A34E]" />
-                Staff App Permissions (Read-Only)
+                <ListTodo className="w-3.5 h-3.5 text-[#C9A34E]" />
+                Staff Daily Tasks & Performance Desk
               </h4>
-
-              <div className="p-4 rounded-2xl bg-[#161230] border border-[#29252A] space-y-3.5 text-xs">
-                {/* Match Management */}
-                <div>
-                  <span className="text-[11px] font-bold text-[#C9A34E] block mb-1.5">
-                    Match Management
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <span className="px-2.5 py-1 rounded-lg bg-[#350A12] text-[#C9A34E] border border-[#29252A]/50 flex items-center gap-1.5 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-[#C9A34E]" /> Create Match
-                    </span>
-                    <span className="px-2.5 py-1 rounded-lg bg-[#350A12] text-[#C9A34E] border border-[#29252A]/50 flex items-center gap-1.5 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-[#C9A34E]" /> View Match
-                    </span>
-                    <span className="px-2.5 py-1 rounded-lg bg-[#350A12] text-[#C9A34E] border border-[#29252A]/50 flex items-center gap-1.5 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-[#C9A34E]" /> Edit Match
-                    </span>
-                    <span className="px-2.5 py-1 rounded-lg bg-[#350A12] text-[#C9A34E] border border-[#29252A]/50 flex items-center gap-1.5 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-[#C9A34E]" /> Delete Match
-                    </span>
-                  </div>
-                </div>
-
-                {/* Registration Management */}
-                <div>
-                  <span className="text-[11px] font-bold text-[#C9A34E] block mb-1.5">
-                    Registration Management
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <span className="px-2.5 py-1 rounded-lg bg-[#350A12] text-[#C9A34E] border border-[#29252A]/50 flex items-center gap-1.5 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-[#C9A34E]" /> View Registrations
-                    </span>
-                    <span className="px-2.5 py-1 rounded-lg bg-[#350A12] text-[#C9A34E] border border-[#29252A]/50 flex items-center gap-1.5 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-[#C9A34E]" /> Edit Registrations
-                    </span>
-                  </div>
-                </div>
-
-                {/* Results */}
-                <div>
-                  <span className="text-[11px] font-bold text-[#C9A34E] block mb-1.5">
-                    Results Management
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <span className="px-2.5 py-1 rounded-lg bg-[#350A12] text-[#C9A34E] border border-[#29252A]/50 flex items-center gap-1.5 text-[11px]">
-                      <Check className="w-3.5 h-3.5 text-[#C9A34E]" /> Publish Match Results
-                    </span>
-                  </div>
-                </div>
-
-                {/* Explicit Restricted Modules */}
-                <div className="pt-2 border-t border-[#29252A]">
-                  <span className="text-[11px] font-bold text-rose-400 block mb-1.5">
-                    Restricted Modules (No Access)
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      'Wallets & Balance Adjustments',
-                      'Deposits & Withdrawals',
-                      'Payment Gateways',
-                      'Promo Coupons',
-                      'Users Management',
-                      'System Settings & Config',
-                      'Staff & Roles Management',
-                      'SUPERADMIN Operations'
-                    ].map((restricted) => (
-                      <span
-                        key={restricted}
-                        className="px-2 py-0.5 rounded text-[10px] bg-rose-950/40 text-rose-400 border border-[#350A12] flex items-center gap-1"
-                      >
-                        <X className="w-3 h-3 text-rose-500" />
-                        {restricted}: <strong>No Access</strong>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <StaffDailyTasksCard
+                staffIdProp={selectedStaffDetails.userId || selectedStaffDetails.user_id || selectedStaffDetails.id}
+                staffNameProp={selectedStaffDetails.name || selectedStaffDetails.displayName}
+                assignedGameProp={selectedStaffDetails.assignedGame || selectedStaffDetails.assigned_game}
+              />
             </div>
 
             {/* Modal Actions Footer */}
@@ -1570,6 +1909,156 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({
                   </>
                 ) : (
                   <span>Remove Staff Account</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* EDIT GAME ASSIGNMENT MODAL */}
+      {/* ========================================================================= */}
+      {staffToEditGame && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-md bg-[#0D0B0D] border border-[#29252A] rounded-3xl p-6 space-y-4 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-[#29252A]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-400/20 border border-amber-400/30 flex items-center justify-center text-amber-400">
+                  <Gamepad2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">
+                    Edit Game Assignment
+                  </h3>
+                  <p className="text-xs text-[#B0ACB0]/80">
+                    Update assigned game for this staff member
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setStaffToEditGame(null)}
+                disabled={isUpdatingGame}
+                className="p-1.5 rounded-xl bg-[#0D0B0D] text-[#777278] hover:text-white transition disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Target Staff Preview */}
+            <div className="p-3.5 rounded-2xl bg-[#161230] border border-[#29252A] flex items-center gap-3">
+              <img
+                src={staffToEditGame.avatarUrl || staffToEditGame.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'}
+                alt={staffToEditGame.name}
+                className="w-10 h-10 rounded-xl object-cover ring-1 ring-purple-700/50 flex-shrink-0"
+              />
+              <div className="min-w-0">
+                <h4 className="font-extrabold text-white text-xs truncate">
+                  {staffToEditGame.name || staffToEditGame.displayName || 'Staff Member'}
+                </h4>
+                <p className="font-mono text-[11px] text-[#C9A34E] font-bold">
+                  {staffToEditGame.staffId || staffToEditGame.staff_id || staffToEditGame.id}
+                </p>
+              </div>
+            </div>
+
+            {/* Game Options */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-white">
+                Select Assigned Game <span className="text-amber-400">*</span>
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Free Fire Option */}
+                <button
+                  type="button"
+                  onClick={() => setEditGameValue('Free Fire')}
+                  className={`p-3.5 rounded-2xl border text-left transition relative cursor-pointer ${
+                    editGameValue === 'Free Fire'
+                      ? 'bg-gradient-to-br from-orange-950/70 to-purple-950/50 border-orange-500 ring-2 ring-orange-500/30'
+                      : 'bg-[#0D0B0D] border-[#29252A] hover:border-[#29252A]/60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                        editGameValue === 'Free Fire' ? 'bg-orange-500 text-white shadow-md shadow-orange-950' : 'bg-[#1B181C] text-[#B0ACB0]'
+                      }`}>
+                        <Flame className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h5 className="font-extrabold text-xs text-white">Free Fire</h5>
+                        <span className="text-[10px] text-[#B0ACB0]">Garena FF MAX</span>
+                      </div>
+                    </div>
+                    {editGameValue === 'Free Fire' && (
+                      <div className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center">
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      </div>
+                    )}
+                  </div>
+                </button>
+
+                {/* BGMI Option */}
+                <button
+                  type="button"
+                  onClick={() => setEditGameValue('BGMI')}
+                  className={`p-3.5 rounded-2xl border text-left transition relative cursor-pointer ${
+                    editGameValue === 'BGMI'
+                      ? 'bg-gradient-to-br from-amber-950/70 to-purple-950/50 border-amber-400 ring-2 ring-amber-400/30'
+                      : 'bg-[#0D0B0D] border-[#29252A] hover:border-[#29252A]/60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                        editGameValue === 'BGMI' ? 'bg-amber-400 text-black shadow-md shadow-amber-950' : 'bg-[#1B181C] text-[#B0ACB0]'
+                      }`}>
+                        <Gamepad2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h5 className="font-extrabold text-xs text-white">BGMI</h5>
+                        <span className="text-[10px] text-[#B0ACB0]">Battlegrounds</span>
+                      </div>
+                    </div>
+                    {editGameValue === 'BGMI' && (
+                      <div className="w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center">
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      </div>
+                    )}
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Actions Footer */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setStaffToEditGame(null)}
+                disabled={isUpdatingGame}
+                className="px-4 py-2.5 rounded-xl bg-[#0D0B0D] text-[#B0ACB0] text-xs font-bold hover:bg-[#141215] transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="save-game-assignment-btn"
+                onClick={handleConfirmEditGame}
+                disabled={isUpdatingGame}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-extrabold text-xs shadow-lg transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isUpdatingGame ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-black" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 text-black" />
+                    <span>Save Assignment</span>
+                  </>
                 )}
               </button>
             </div>

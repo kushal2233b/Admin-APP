@@ -542,6 +542,12 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
+  v_caller_role TEXT;
+  v_caller_assigned_game TEXT;
+  v_match_game TEXT;
+  v_match_game_cat TEXT;
+  v_match_status TEXT;
+  v_is_published BOOLEAN;
   v_result JSONB;
   v_user_id UUID;
   v_prize NUMERIC;
@@ -549,18 +555,38 @@ DECLARE
   v_count INTEGER := 0;
 BEGIN
   -- 1. Authorization check: Admin, Superadmin, or Staff
-  IF NOT EXISTS (
-    SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() AND LOWER(role) IN ('superadmin', 'admin', 'staff')
-  ) THEN
-    RAISE EXCEPTION 'Unauthorized: Only admins can publish match results.';
+  SELECT LOWER(COALESCE(role, '')), assigned_game 
+  INTO v_caller_role, v_caller_assigned_game
+  FROM public.profiles 
+  WHERE id = auth.uid();
+
+  IF v_caller_role IS NULL OR v_caller_role NOT IN ('superadmin', 'admin', 'staff') THEN
+    RAISE EXCEPTION 'Unauthorized: Only admins and authorized staff can publish match results.';
   END IF;
 
-  -- 2. Prevent duplicate publishing
-  IF EXISTS (
-    SELECT 1 FROM public.tournaments 
-    WHERE id = p_match_id AND (results_published = true OR status = 'COMPLETED')
-  ) THEN
+  -- 2. Fetch tournament info & enforce game isolation for staff
+  SELECT status, COALESCE(results_published, FALSE), game, game_category
+  INTO v_match_status, v_is_published, v_match_game, v_match_game_cat
+  FROM public.tournaments 
+  WHERE id = p_match_id;
+
+  IF v_match_status IS NULL THEN
+    RAISE EXCEPTION 'Tournament with ID % not found.', p_match_id;
+  END IF;
+
+  IF v_caller_role = 'staff' THEN
+    IF v_caller_assigned_game IS NULL OR TRIM(v_caller_assigned_game) = '' OR LOWER(v_caller_assigned_game) = 'not assigned' THEN
+      RAISE EXCEPTION 'Forbidden: You have no assigned game. Contact an administrator for game assignment.';
+    END IF;
+
+    IF (v_caller_assigned_game ILIKE '%free%fire%' AND COALESCE(v_match_game, v_match_game_cat) ILIKE '%bgmi%') OR
+       (v_caller_assigned_game ILIKE '%bgmi%' AND (COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%bgmi%' AND COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%battleground%' AND COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%pubg%')) THEN
+      RAISE EXCEPTION 'Forbidden: You are assigned to % and cannot publish results for % matches.', v_caller_assigned_game, COALESCE(v_match_game, 'this game');
+    END IF;
+  END IF;
+
+  -- 3. Prevent duplicate publishing
+  IF v_is_published = TRUE OR v_match_status IN ('COMPLETED', 'FINISHED', 'completed', 'finished') THEN
     RETURN jsonb_build_object('success', false, 'message', 'Results already published for this tournament.');
   END IF;
 

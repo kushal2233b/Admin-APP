@@ -27,6 +27,7 @@ import {
 } from '../types';
 import { sendMatchResultNotification, sendWithdrawalNotification } from './notificationSenderService';
 import { deleteFromStorage } from './storageService';
+import { getSynchronizedServerTime } from './serverTimeSync';
 
 export const cleanUndefined = (obj: any): any => {
   if (obj === null || obj === undefined) return obj;
@@ -217,8 +218,10 @@ export function getCategoryBannerImage(categoryName: string): string {
 }
 
 // Match DateTime formatting helper without timezone distortion
-export function getMatchDateTimeStrings(startTimeInput: string) {
+export function getMatchDateTimeStrings(startTimeInput: string, matchDateInput?: string) {
   const timeStr = (startTimeInput || '').trim();
+  const dateStr = (matchDateInput || '').trim();
+
   if (!timeStr) {
     const now = new Date();
     const iso = now.toISOString();
@@ -226,65 +229,314 @@ export function getMatchDateTimeStrings(startTimeInput: string) {
       matchTime: iso,
       matchDate: `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`,
       dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
-      formattedTime: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+      formattedTime: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
     };
   }
 
-  const localMatch = timeStr.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (localMatch) {
-    const [, y, m, d, h, min] = localMatch;
-    const year = Number(y);
-    const month = Number(m);
-    const day = Number(d);
-    const hours = Number(h);
-    const minutes = Number(min);
+  // 1. Check if timeStr contains a full ISO timestamp/datetime.
+  const hasDateInTimeStr = /^\d{4}-\d{2}-\d{2}/.test(timeStr) || timeStr.includes('T');
 
-    const dateObj = new Date(year, month - 1, day, hours, minutes);
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    const h12 = hours % 12 || 12;
-    const formattedTime = `${String(h12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const dayOfWeek = dayNames[dateObj.getDay()] || 'Today';
-    const matchDate = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+  if (hasDateInTimeStr) {
+    try {
+      const dateObj = new Date(timeStr);
+      if (!isNaN(dateObj.getTime())) {
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const year = dateObj.getFullYear();
+        const matchDate = `${day}/${month}/${year}`;
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayOfWeek = dayNames[dateObj.getDay()] || 'Today';
+        const hours = dateObj.getHours();
+        const minutes = dateObj.getMinutes();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const h12 = hours % 12 || 12;
+        const formattedTime = `${h12}:${String(minutes).padStart(2, '0')} ${ampm}`;
 
-    return {
-      matchTime: timeStr,
-      matchDate,
-      dayOfWeek,
-      formattedTime
-    };
+        return {
+          matchTime: timeStr,
+          matchDate,
+          dayOfWeek,
+          formattedTime
+        };
+      }
+    } catch {}
   }
 
-  try {
-    const dateObj = new Date(timeStr);
-    if (!isNaN(dateObj.getTime())) {
-      const day = String(dateObj.getDate()).padStart(2, '0');
-      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-      const year = dateObj.getFullYear();
-      const matchDate = `${day}/${month}/${year}`;
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      const dayOfWeek = dayNames[dateObj.getDay()] || 'Today';
-      const hours = dateObj.getHours();
-      const minutes = dateObj.getMinutes();
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const h12 = hours % 12 || 12;
-      const formattedTime = `${String(h12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
+  // 2. Parse date components from dateStr if available, otherwise fallback to current date.
+  let year = new Date().getFullYear();
+  let month = new Date().getMonth() + 1; // 1-indexed
+  let day = new Date().getDate();
 
-      return {
-        matchTime: timeStr,
-        matchDate,
-        dayOfWeek,
-        formattedTime
-      };
+  if (dateStr) {
+    const ymdMatch = dateStr.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+    const dmyMatch = dateStr.match(/^(\d{2})[-/](\d{2})[-/](\d{4})/);
+    if (ymdMatch) {
+      year = Number(ymdMatch[1]);
+      month = Number(ymdMatch[2]);
+      day = Number(ymdMatch[3]);
+    } else if (dmyMatch) {
+      day = Number(dmyMatch[1]);
+      month = Number(dmyMatch[2]);
+      year = Number(dmyMatch[3]);
     }
-  } catch {}
+  }
+
+  // 3. Parse time components from timeStr
+  let hour = 12;
+  let minute = 0;
+  let parsedTimeSuccess = false;
+
+  if (timeStr) {
+    const ampmMatch = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    const militaryMatch = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+
+    if (ampmMatch) {
+      let h = Number(ampmMatch[1]);
+      const min = Number(ampmMatch[2]);
+      const ampm = ampmMatch[3].toUpperCase();
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      hour = h;
+      minute = min;
+      parsedTimeSuccess = true;
+    } else if (militaryMatch) {
+      hour = Number(militaryMatch[1]);
+      minute = Number(militaryMatch[2]);
+      parsedTimeSuccess = true;
+    }
+  }
+
+  // 4. Reconstruct ISO timestamp with Asia/Kolkata (+05:30) offset
+  if (parsedTimeSuccess || dateStr) {
+    const isoWithOffset = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:30`;
+    try {
+      const dateObj = new Date(isoWithOffset);
+      if (!isNaN(dateObj.getTime())) {
+        const dayFormatted = String(day).padStart(2, '0');
+        const monthFormatted = String(month).padStart(2, '0');
+        const matchDate = `${dayFormatted}/${monthFormatted}/${year}`;
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const dayOfWeek = dayNames[dateObj.getDay()] || 'Today';
+        const ampm = hour >= 12 ? 'PM' : 'AM';
+        const h12 = hour % 12 || 12;
+        const formattedTime = `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
+
+        return {
+          matchTime: dateObj.toISOString(),
+          matchDate,
+          dayOfWeek,
+          formattedTime
+        };
+      }
+    } catch {}
+  }
 
   return {
     matchTime: timeStr,
-    matchDate: 'Today',
+    matchDate: dateStr || 'Today',
     dayOfWeek: 'Today',
     formattedTime: timeStr
   };
+}
+
+/**
+ * Helper to get current date parts in Asia/Kolkata timezone
+ */
+export function getKolkataDateParts(referenceNowMs: number = Date.now()): { year: number; month: number; day: number } {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    const parts = formatter.format(new Date(referenceNowMs)).split('-');
+    return { year: Number(parts[0]), month: Number(parts[1]), day: Number(parts[2]) };
+  } catch {
+    const d = new Date(referenceNowMs + 5.5 * 60 * 60 * 1000);
+    return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+  }
+}
+
+/**
+ * Robust parser to extract exact timestamp in milliseconds from tournament start time / date fields.
+ * Strictly uses Asia/Kolkata timezone (+05:30) for scheduled dates and times.
+ */
+export function parseMatchStartTimeMs(
+  matchTime?: string | null,
+  matchDate?: string | null,
+  timeStr?: string | null,
+  referenceNowMs: number = Date.now()
+): number | null {
+  const timeVal = (matchTime || '').trim();
+  const dateVal = (matchDate || '').trim();
+  const fallbackTimeVal = (timeStr || '').trim();
+
+  // 1. Check if timeVal has explicit timezone designator (Z or +hh:mm)
+  if (timeVal) {
+    if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(timeVal)) {
+      const parsed = Date.parse(timeVal);
+      if (!isNaN(parsed)) return parsed;
+    }
+
+    // 2. Check if timeVal is ISO local format: YYYY-MM-DDTHH:mm(:ss)?
+    const isoMatch = timeVal.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (isoMatch) {
+      const [, y, m, d, h, min, s] = isoMatch;
+      const sec = s ? s.padStart(2, '0') : '00';
+      const isoWithKolkata = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${h.padStart(2, '0')}:${min.padStart(2, '0')}:${sec}+05:30`;
+      const parsed = Date.parse(isoWithKolkata);
+      if (!isNaN(parsed)) return parsed;
+    }
+  }
+
+  // 3. Extract time components (HH:mm:ss AM/PM or HH:mm:ss 24h)
+  let hours = 0;
+  let minutes = 0;
+  let seconds = 0;
+  let timeFound = false;
+
+  const rawTimeToParse = timeVal || fallbackTimeVal;
+  if (rawTimeToParse) {
+    const tMatch = rawTimeToParse.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?/i);
+    if (tMatch) {
+      let h = Number(tMatch[1]);
+      const min = Number(tMatch[2]);
+      const sec = tMatch[3] ? Number(tMatch[3]) : 0;
+      const ampm = (tMatch[4] || '').toUpperCase();
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      hours = h;
+      minutes = min;
+      seconds = sec;
+      timeFound = true;
+    }
+  }
+
+  // 4. Extract date components (DD/MM/YYYY, YYYY-MM-DD, Today, Tomorrow)
+  let year: number;
+  let month: number;
+  let day: number;
+
+  const kolkataNow = getKolkataDateParts(referenceNowMs);
+
+  if (dateVal) {
+    const dmyMatch = dateVal.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+    const ymdMatch = dateVal.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})/);
+
+    if (dmyMatch) {
+      day = Number(dmyMatch[1]);
+      month = Number(dmyMatch[2]);
+      year = Number(dmyMatch[3]);
+    } else if (ymdMatch) {
+      year = Number(ymdMatch[1]);
+      month = Number(ymdMatch[2]);
+      day = Number(ymdMatch[3]);
+    } else if (dateVal.toLowerCase() === 'today') {
+      year = kolkataNow.year;
+      month = kolkataNow.month;
+      day = kolkataNow.day;
+    } else if (dateVal.toLowerCase() === 'tomorrow') {
+      const tomorrowMs = referenceNowMs + 24 * 60 * 60 * 1000;
+      const tKolkata = getKolkataDateParts(tomorrowMs);
+      year = tKolkata.year;
+      month = tKolkata.month;
+      day = tKolkata.day;
+    } else {
+      year = kolkataNow.year;
+      month = kolkataNow.month;
+      day = kolkataNow.day;
+    }
+  } else {
+    year = kolkataNow.year;
+    month = kolkataNow.month;
+    day = kolkataNow.day;
+  }
+
+  if (!timeFound && !timeVal && !fallbackTimeVal) {
+    return null;
+  }
+
+  const yStr = String(year).padStart(4, '0');
+  const mStr = String(month).padStart(2, '0');
+  const dStr = String(day).padStart(2, '0');
+  const hStr = String(hours).padStart(2, '0');
+  const minStr = String(minutes).padStart(2, '0');
+  const sStr = String(seconds).padStart(2, '0');
+
+  const finalIso = `${yStr}-${mStr}-${dStr}T${hStr}:${minStr}:${sStr}+05:30`;
+  const resultMs = Date.parse(finalIso);
+  return isNaN(resultMs) ? null : resultMs;
+}
+
+/**
+ * Determines whether a match has reached its automatic LIVE threshold
+ * Rule: Automatically transitions to LIVE at exactly 30 seconds after the scheduled start time
+ * Example: Match scheduled for 10:30:00 AM becomes LIVE at 10:30:30 AM
+ */
+export function isMatchLiveBySchedule(
+  matchTime?: string | null,
+  matchDate?: string | null,
+  timeStr?: string | null,
+  currentServerTimeMs: number = getSynchronizedServerTime()
+): boolean {
+  const startMs = parseMatchStartTimeMs(matchTime, matchDate, timeStr, currentServerTimeMs);
+  if (startMs === null || isNaN(startMs)) return false;
+  // Exactly 30 seconds after scheduled start time in Asia/Kolkata
+  const liveThresholdMs = startMs + 30 * 1000;
+  return currentServerTimeMs >= liveThresholdMs;
+}
+
+/**
+ * Normalize any Match ID into public format WX7-DDMM-XXX (strip old year if present)
+ */
+export function normalizePublicMatchId(rawMatchId?: string | null): string | null {
+  if (!rawMatchId || typeof rawMatchId !== 'string') return null;
+  const trimmed = rawMatchId.trim();
+  // Old format: WX7-DDMMYY-XXX -> convert to WX7-DDMM-XXX
+  const oldMatch = trimmed.match(/^WX7-(\d{4})\d{2}-(\d{3,})$/i);
+  if (oldMatch) {
+    return `WX7-${oldMatch[1]}-${oldMatch[2]}`;
+  }
+  // Already in WX7-DDMM-XXX format
+  if (/^WX7-\d{4}-\d{3,}$/i.test(trimmed)) {
+    return trimmed.toUpperCase();
+  }
+  return trimmed;
+}
+
+/**
+ * Format date to public DDMM string in Asia/Kolkata timezone (NO YEAR)
+ */
+export function formatMatchIdDateKey(dateInput?: string | number | Date): string {
+  let d: Date;
+  if (!dateInput) {
+    d = new Date();
+  } else if (dateInput instanceof Date) {
+    d = dateInput;
+  } else if (typeof dateInput === 'number') {
+    d = new Date(dateInput);
+  } else {
+    const parsed = new Date(dateInput);
+    d = isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const parts = formatter.formatToParts(d);
+    const day = parts.find((p) => p.type === 'day')?.value || String(d.getDate()).padStart(2, '0');
+    const month = parts.find((p) => p.type === 'month')?.value || String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}${month}`;
+  } catch {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}${month}`;
+  }
 }
 
 // Data Normalization Functions for Existing Types
@@ -528,7 +780,7 @@ export function normalizeTournamentDoc(
   })();
 
   const matchTimeVal = docData?.match_time || docData?.start_time || docData?.startTime || docData?.match_schedule || docData?.matchSchedule || docData?.schedule || new Date().toISOString();
-  const dtInfo = getMatchDateTimeStrings(matchTimeVal);
+  const dtInfo = getMatchDateTimeStrings(matchTimeVal, docData?.match_date || docData?.matchDate);
   const matchDateVal = docData?.match_date || docData?.matchDate || dtInfo.matchDate;
 
     const rawStatus = (docData?.status || '').toString().trim().toLowerCase();
@@ -541,10 +793,7 @@ export function normalizeTournamentDoc(
     );
     const isCancelled = rawStatus === 'cancelled' || rawStatus === 'canceled';
 
-    const startTimeMs = new Date(matchTimeVal).getTime();
-    const nowMs = Date.now();
-    const thirtySecs = 30 * 1000;
-    const isTimeLive = !isNaN(startTimeMs) && (nowMs >= startTimeMs + thirtySecs);
+    const isTimeLive = isMatchLiveBySchedule(matchTimeVal, matchDateVal, docData?.time || dtInfo.formattedTime);
 
     const normalizedStatus: MatchStatus = 
       (rawStatus === 'completed' || rawStatus === 'finished' || isResultsPublished || hasCompletedAt) ? 'completed'
@@ -586,8 +835,17 @@ export function normalizeTournamentDoc(
 
     const finalAccessCode = rawRequiresAccessCode ? rawAccessCode : '';
 
+    const rawMatchId = (docData?.match_id !== undefined && docData?.match_id !== null && String(docData.match_id).trim().length > 0)
+      ? String(docData.match_id).trim()
+      : (docData?.matchId && String(docData.matchId).trim().length > 0)
+        ? String(docData.matchId).trim()
+        : '';
+    const resolvedMatchId = normalizePublicMatchId(rawMatchId) || rawMatchId;
+
     return {
       id: id || docData?.id || `tournament-${Date.now()}`,
+      matchId: resolvedMatchId,
+      match_id: resolvedMatchId,
       title: docData?.title || docData?.name || 'Untitled Tournament',
       game: gameName,
       gameCategory: gameName,
@@ -615,10 +873,10 @@ export function normalizeTournamentDoc(
       results_published: isResultsPublished,
       completedAt: docData?.completed_at || docData?.completedAt || docData?.finished_at || docData?.finishedAt || undefined,
       completed_at: docData?.completed_at || docData?.completedAt || undefined,
-      startTime: matchTimeVal,
-      matchSchedule: matchTimeVal,
-      schedule: matchTimeVal,
-      match_time: matchTimeVal,
+      startTime: dtInfo.matchTime,
+      matchSchedule: dtInfo.matchTime,
+      schedule: dtInfo.matchTime,
+      match_time: dtInfo.matchTime,
       matchDate: matchDateVal,
       match_date: matchDateVal,
       dayOfWeek: dtInfo.dayOfWeek,
@@ -1013,15 +1271,10 @@ export function normalizeUserDoc(docData: any, id: string = docData?.id || docDa
     phone,
     inGameId,
     inGameName,
-    ff_uid: ffUid || inGameId,
     ffUid: ffUid || inGameId,
-    ff_ign: ffIgn || inGameName,
     ffIgn: ffIgn || inGameName,
-    bgmi_uid: bgmiUid,
     bgmiUid: bgmiUid,
-    bgmi_ign: bgmiIgn,
     bgmiIgn: bgmiIgn,
-    avatar_id: avatarId,
     avatarId: avatarId,
     avatarUrl,
     photoURL: avatarUrl,
@@ -1040,13 +1293,27 @@ export function normalizeUserDoc(docData: any, id: string = docData?.id || docDa
     matchesPlayed: Number(docData?.matches_played ?? docData?.matchesPlayed ?? docData?.total_matches_joined ?? 0),
     matchesWon: Number(docData?.matches_won ?? docData?.matchesWon ?? docData?.total_wins ?? 0),
     totalKills: Number(docData?.total_kills ?? docData?.totalKills ?? 0),
-    status: (docData?.status === 'blocked' || docData?.status === 'banned' || docData?.status === 'suspended') ? 'blocked' : 'active',
+    status: (() => {
+      const rawStatus = String(docData?.status || '').toLowerCase();
+      const isSusp = Boolean(docData?.is_suspended ?? docData?.isSuspended ?? (rawStatus === 'suspended'));
+      const isBan = Boolean(docData?.is_banned ?? docData?.isBanned ?? (rawStatus === 'banned'));
+      const isBlock = Boolean(docData?.is_blocked ?? docData?.isBlocked ?? (rawStatus === 'blocked'));
+      if (isSusp || rawStatus === 'suspended') return 'suspended';
+      if (isBan || rawStatus === 'banned') return 'banned';
+      if (isBlock || rawStatus === 'blocked') return 'blocked';
+      return 'active';
+    })(),
+    is_suspended: Boolean(docData?.is_suspended ?? docData?.isSuspended ?? (String(docData?.status || '').toLowerCase() === 'suspended')),
+    isSuspended: Boolean(docData?.is_suspended ?? docData?.isSuspended ?? (String(docData?.status || '').toLowerCase() === 'suspended')),
+    is_banned: Boolean(docData?.is_banned ?? docData?.isBanned ?? (String(docData?.status || '').toLowerCase() === 'banned')),
+    is_blocked: Boolean(docData?.is_blocked ?? docData?.isBlocked ?? ['blocked', 'banned'].includes(String(docData?.status || '').toLowerCase())),
     role: docData?.role || 'user',
     createdAt: docData?.created_at || docData?.createdAt || new Date().toISOString(),
     lastLogin: docData?.last_login || docData?.lastLogin || new Date().toISOString(),
     isEmailVerified: Boolean(docData?.is_email_verified ?? docData?.isEmailVerified ?? true),
     isPhoneVerified: Boolean(docData?.is_phone_verified ?? docData?.isPhoneVerified ?? false),
-    banReason: docData?.ban_reason || docData?.banReason,
+    banReason: docData?.ban_reason || docData?.banReason || '',
+    ban_reason: docData?.ban_reason || docData?.banReason || '',
     deviceInfo: docData?.device_info || docData?.deviceInfo,
   };
 }
@@ -1636,6 +1903,132 @@ export function resolveUserDisplayName(
   };
 }
 
+/**
+ * Resolves authentic user account identity (Username, Email, Phone, User ID)
+ * strictly for financial transactions (deposits, withdrawals, coupons, winnings, refunds, ledger).
+ * Excludes Free Fire and BGMI in-game IGNs.
+ */
+export function resolveTransactionUser(
+  input: any,
+  users: AppUser[] = []
+): {
+  username: string;
+  email: string;
+  phone: string;
+  userId: string;
+  matchedUser: AppUser | null;
+} {
+  if (!input) {
+    return {
+      username: 'User',
+      email: 'N/A',
+      phone: 'N/A',
+      userId: 'N/A',
+      matchedUser: null
+    };
+  }
+
+  let parsed: any = input;
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        parsed = input;
+      }
+    }
+  }
+
+  if (typeof parsed === 'string' || typeof parsed === 'number') {
+    const str = String(parsed).trim();
+    const strLower = str.toLowerCase();
+
+    const matchedUser = (users || []).find((u) => {
+      if (!u) return false;
+      const uId = (u.id || '').toLowerCase().trim();
+      const uUid = (u.uid || '').toLowerCase().trim();
+      const uEmail = (u.email || '').toLowerCase().trim();
+      const uUsername = (u.username || '').toLowerCase().trim();
+      return (
+        (uId && strLower === uId) ||
+        (uUid && strLower === uUid) ||
+        (uEmail && strLower === uEmail) ||
+        (uUsername && strLower === uUsername)
+      );
+    });
+
+    if (matchedUser) {
+      const bestUsername =
+        (matchedUser.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+        (matchedUser.displayName && matchedUser.displayName !== 'Player' && matchedUser.displayName !== 'User' ? matchedUser.displayName : '') ||
+        (matchedUser.email ? matchedUser.email.split('@')[0] : '') ||
+        'User';
+
+      return {
+        username: bestUsername,
+        email: matchedUser.email || 'N/A',
+        phone: matchedUser.phone || 'N/A',
+        userId: matchedUser.uid || matchedUser.id || str,
+        matchedUser
+      };
+    }
+
+    const isEmail = str.includes('@');
+    return {
+      username: isEmail ? str.split('@')[0] : (str.length > 25 ? `User (${str.slice(0, 6)})` : (str || 'User')),
+      email: isEmail ? str : 'N/A',
+      phone: 'N/A',
+      userId: !isEmail ? str : 'N/A',
+      matchedUser: null
+    };
+  }
+
+  const pUserId = (parsed.userId || parsed.user_id || parsed.userUid || parsed.user_uid || parsed.uid || parsed.id || '').toString().trim();
+  const pEmail = (parsed.email || parsed.userEmail || parsed.user_email || parsed.mail || '').toString().trim();
+  const pPhone = (parsed.phone || parsed.userPhone || parsed.user_phone || parsed.mobile || '').toString().trim();
+  const pUsername = (parsed.username || parsed.user_name || parsed.displayName || parsed.display_name || parsed.name || parsed.fullName || parsed.full_name || '').toString().trim();
+
+  const matchedUser = (users || []).find((u) => {
+    if (!u) return false;
+    const uUid = (u.uid || u.id || '').toString().toLowerCase().trim();
+    if (pUserId && uUid && pUserId.toLowerCase() === uUid) return true;
+
+    const uEmail = (u.email || '').toString().toLowerCase().trim();
+    if (pEmail && uEmail && pEmail.toLowerCase() === uEmail) return true;
+
+    const uPhone = (u.phone || '').toString().trim();
+    if (pPhone && uPhone && pPhone === uPhone) return true;
+
+    const uUsername = (u.username || (u as any).displayName || '').toString().toLowerCase().trim();
+    if (pUsername && uUsername && pUsername.toLowerCase() === uUsername) return true;
+
+    return false;
+  });
+
+  const bestUsername =
+    (matchedUser?.username && matchedUser.username !== 'Player' && matchedUser.username !== 'User' ? matchedUser.username : '') ||
+    (matchedUser?.displayName && matchedUser.displayName !== 'Player' && matchedUser.displayName !== 'User' ? matchedUser.displayName : '') ||
+    (pUsername && pUsername !== 'Player' && pUsername !== 'User' ? pUsername : '') ||
+    (matchedUser?.email ? matchedUser.email.split('@')[0] : '') ||
+    (pEmail ? pEmail.split('@')[0] : '') ||
+    (matchedUser?.phone ? matchedUser.phone : '') ||
+    (pPhone ? pPhone : '') ||
+    'User';
+
+  const finalEmail = matchedUser?.email || pEmail || 'N/A';
+  const finalPhone = matchedUser?.phone || pPhone || 'N/A';
+  const finalUserId = matchedUser?.uid || matchedUser?.id || pUserId || 'N/A';
+
+  return {
+    username: bestUsername,
+    email: finalEmail,
+    phone: finalPhone,
+    userId: finalUserId,
+    matchedUser: matchedUser || null
+  };
+}
+
 export function normalizeTransactionDoc(
   docData: any,
   id: string = docData?.id || '',
@@ -1722,6 +2115,8 @@ export function normalizeTransactionDoc(
     id: id || docData?.id || `tx-${Date.now()}`,
     userId: docData?.user_id || docData?.userId || profile?.id || '',
     username: resolvedUsername,
+    userEmail: profile?.email || docData?.user_email || docData?.email || docData?.userEmail || undefined,
+    userPhone: profile?.phone || docData?.user_phone || docData?.phone || docData?.userPhone || undefined,
     type: rawType as any,
     amount: Number(docData?.amount || 0),
     status: statusVal as any,
@@ -1883,7 +2278,13 @@ export function normalizeSystemSettingsFromRow(docData: any): SystemSettings {
       registrationEnabled: true,
       referralEnabled: true,
       referralBonus: 25,
-      minAppVersion: '1.0.0',
+      minAppVersion: '1.0.7',
+      minimumAppVersion: '1.0.7',
+      latestAppVersion: '1.0.8',
+      appVersion: '1.0.8',
+      updateMessage: '',
+      updateUrl: '',
+      isForceUpdate: false,
       privacyPolicyText: '',
       termsAndFairPlayRulesText: '',
       privacyPolicy: '',
@@ -1968,7 +2369,13 @@ export function normalizeSystemSettingsFromRow(docData: any): SystemSettings {
     depositEnabled: merged.is_deposit_on !== undefined ? Boolean(merged.is_deposit_on) : (merged.deposit_enabled !== undefined ? Boolean(merged.deposit_enabled) : (merged.depositEnabled !== undefined ? Boolean(merged.depositEnabled) : true)),
     referralEnabled: merged.is_referral_on !== undefined ? Boolean(merged.is_referral_on) : (merged.referral_enabled !== undefined ? Boolean(merged.referral_enabled) : (merged.referralEnabled !== undefined ? Boolean(merged.referralEnabled) : true)),
     referralBonus: Number(merged.referral_bonus ?? merged.referralBonus ?? 25),
-    minAppVersion: String(merged.min_app_version || merged.minAppVersion || '1.0.0'),
+    minAppVersion: String(merged.minimum_app_version || merged.minimumAppVersion || merged.min_app_version || merged.minAppVersion || '1.0.7'),
+    minimumAppVersion: String(merged.minimum_app_version || merged.minimumAppVersion || merged.min_app_version || merged.minAppVersion || '1.0.7'),
+    latestAppVersion: String(merged.latest_app_version || merged.latestAppVersion || merged.app_version || merged.appVersion || merged.min_app_version || '1.0.8'),
+    appVersion: String(merged.latest_app_version || merged.latestAppVersion || merged.app_version || merged.appVersion || '1.0.8'),
+    updateMessage: String(merged.update_message || merged.updateMessage || ''),
+    updateUrl: String(merged.update_url || merged.updateUrl || ''),
+    isForceUpdate: Boolean(merged.is_force_update !== undefined ? merged.is_force_update : (merged.isForceUpdate ?? false)),
     minDeposit: Number(merged.min_deposit ?? merged.minDeposit ?? 10),
     maxDeposit: Number(merged.max_deposit ?? merged.maxDeposit ?? 50000),
     minWithdrawal: Number(merged.min_withdrawal ?? merged.minWithdrawal ?? 100),
@@ -2941,8 +3348,9 @@ export async function safeSupabaseWrite(
     }
 
     if (result.error.code === '42501' || (result.error.message && String(result.error.message).includes('row-level security'))) {
-      console.warn(`[Supabase ${tableName}] Row-Level Security policy notice (${result.error.code}), maintaining state locally:`, result.error.message);
-      return { data: null, error: result.error };
+      console.error(`[Supabase ${tableName}] Permission or RLS policy failure (${result.error.code}):`, result.error.message);
+      handleSupabaseError(result.error, `${mode} ${tableName}`);
+      throw result.error;
     }
 
     if (
@@ -2959,6 +3367,10 @@ export async function safeSupabaseWrite(
         result.error.message.match(/column "([^"]+)" does not exist/i) ||
         result.error.message.match(/column '([^']+)' does not exist/i);
       if (match && match[1] && match[1] in currentPayload) {
+        if (tableName === 'tournaments' && match[1] === 'match_id') {
+          handleSupabaseError(result.error, `${mode} ${tableName}`);
+          throw result.error;
+        }
         console.warn(`[Supabase ${tableName}] Column '${match[1]}' not in schema cache, omitting and retrying...`);
         delete currentPayload[match[1]];
         continue;
@@ -2970,6 +3382,50 @@ export async function safeSupabaseWrite(
   }
 }
 
+/**
+ * Acquire the next sequential Match ID from the authoritative database sequence generator
+ */
+export async function fetchAuthoritativeNextMatchId(matchTime?: string, matchDate?: string): Promise<string | null> {
+  // 1. Try direct Supabase RPC invocation
+  try {
+    const { data, error } = await supabase.rpc('generate_next_match_id', {
+      p_match_time: matchTime || null,
+      p_match_date: matchDate || null,
+      p_created_at: new Date().toISOString()
+    });
+    if (!error && data && typeof data === 'string' && /^WX7-\d{4}-\d{3,}$/i.test(data.trim())) {
+      console.log('[Authoritative Match ID] Acquired via Supabase RPC:', data.trim());
+      return data.trim();
+    }
+  } catch (rpcErr) {
+    console.warn('[Authoritative Match ID] Supabase RPC call note:', rpcErr);
+  }
+
+  // 2. Fallback to server endpoint calling public.generate_next_match_id via service_role
+  try {
+    const res = await fetch('/api/tournaments/generate-match-id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        matchTime: matchTime || null,
+        matchDate: matchDate || null,
+        createdAt: new Date().toISOString()
+      })
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.matchId && /^WX7-\d{4}-\d{3,}$/i.test(json.matchId.trim())) {
+        console.log('[Authoritative Match ID] Acquired via backend sequence endpoint:', json.matchId.trim());
+        return json.matchId.trim();
+      }
+    }
+  } catch (srvErr) {
+    console.warn('[Authoritative Match ID] Backend sequence endpoint note:', srvErr);
+  }
+
+  return null;
+}
+
 // Tournament CRUD
 export async function createTournamentInSupabase(
   tournament: Tournament,
@@ -2978,8 +3434,6 @@ export async function createTournamentInSupabase(
   const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
   const id = (tournament.id && isUuid(tournament.id)) ? tournament.id : crypto.randomUUID();
   tournament.id = id;
-  const tourWithId = { ...tournament, id };
-  updateLocalTournamentCache(id, tourWithId);
 
   const isGameBgmi = 
     (tournament.game || '').toUpperCase() === 'BGMI' || 
@@ -3005,8 +3459,21 @@ export async function createTournamentInSupabase(
   const killVal = Number(tournament.perKillPrize || tournament.perKillReward || 0);
   const schedVal = tournament.matchSchedule || tournament.schedule || tournament.startTime || new Date().toISOString();
 
-  const dtInfo = getMatchDateTimeStrings(schedVal);
+  const dtInfo = getMatchDateTimeStrings(schedVal, (tournament as any).matchDate || (tournament as any).match_date);
   const matchDateStr = (tournament as any).matchDate || (tournament as any).match_date || dtInfo.matchDate;
+
+  // Determine Match ID: If valid format already supplied, preserve it.
+  // Otherwise, fetch the next sequence ID from the database sequence generator.
+  let matchId = normalizePublicMatchId(tournament.matchId || (tournament as any).match_id);
+  if (matchId && !/^WX7-\d{4}-\d{3,}$/i.test(matchId)) {
+    matchId = normalizePublicMatchId(matchId);
+  }
+  if (!matchId || !/^WX7-\d{4}-\d{3,}$/i.test(matchId)) {
+    const nextSeqId = await fetchAuthoritativeNextMatchId(schedVal, matchDateStr);
+    if (nextSeqId) {
+      matchId = nextSeqId;
+    }
+  }
 
   // Resolve clean image URL for banner and thumbnail (safe for mobile User App Image.network)
   let bannerImg = tournament.bannerUrl || (tournament as any).thumbnailUrl || (tournament as any).imageUrl;
@@ -3023,32 +3490,39 @@ export async function createTournamentInSupabase(
     const amountVal = Number(p.prize ?? p.amount ?? p.reward ?? 0);
     return {
       rankRange: rankLabel,
-      rank_range: rankLabel,
-      rankName: rankLabel,
-      title: rankLabel,
-      label: rankLabel,
       prize: amountVal,
-      amount: amountVal,
-      reward: amountVal,
     };
   });
 
-  const payload = cleanUndefined({
+  const requiresAccessCodeVal = Boolean(
+    tournament.requireAccessCode ??
+    tournament.requiresAccessCode ??
+    tournament.requires_access_code ??
+    tournament.require_access_code ??
+    tournament.isPrivate ??
+    (tournament as any).is_private ??
+    false
+  );
+
+  const accessCodeVal = requiresAccessCodeVal ? (
+    (tournament.accessCode && String(tournament.accessCode).trim().length > 0)
+      ? String(tournament.accessCode).trim()
+      : ((tournament as any).access_code && String((tournament as any).access_code).trim().length > 0)
+        ? String((tournament as any).access_code).trim()
+        : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
+  ) : null;
+
+  // EXPLICIT CLEAN PAYLOAD ONLY CONTAINING ACTUAL DATABASE COLUMNS IN public.tournaments
+  const payload: Record<string, any> = cleanUndefined({
     id,
+    match_id: matchId || undefined,
     title: (tournament.title || 'Untitled Tournament').toUpperCase(),
-    game: gameVal,
-    game_category: gameVal,
-    gameCategory: gameVal,
     category_id: tournament.categoryId || null,
     category_name: matchCatVal,
-    match_category: matchCatVal,
-    category: matchCatVal,
+    game_category: gameVal,
     banner_url: bannerImg,
     thumbnail_url: bannerImg,
     image_url: bannerImg,
-    card_image: bannerImg,
-    card_image_url: bannerImg,
-    saved_image_id: tournament.savedImageId || null,
     map_name: mapVal,
     mode: modeVal,
     total_slots: maxVal,
@@ -3062,82 +3536,54 @@ export async function createTournamentInSupabase(
     is_free: Number(tournament.entryFee || 0) === 0,
     is_featured: Boolean(tournament.isFeatured),
     is_recommended: true,
-    is_private: Boolean(
-      tournament.requireAccessCode ??
-      tournament.requiresAccessCode ??
-      tournament.requires_access_code ??
-      tournament.require_access_code ??
-      tournament.isPrivate ??
-      (tournament as any).is_private ??
-      false
-    ),
+    is_private: requiresAccessCodeVal,
     room_id: tournament.roomId || '',
     room_password: tournament.roomPassword || '',
-    requires_access_code: Boolean(
-      tournament.requireAccessCode ??
-      tournament.requiresAccessCode ??
-      tournament.requires_access_code ??
-      tournament.require_access_code ??
-      tournament.isPrivate ??
-      (tournament as any).is_private ??
-      false
-    ),
-    access_code: (
-      tournament.requireAccessCode ??
-      tournament.requiresAccessCode ??
-      tournament.requires_access_code ??
-      tournament.require_access_code ??
-      tournament.isPrivate ??
-      (tournament as any).is_private ??
-      false
-    ) ? (
-      (tournament.accessCode && String(tournament.accessCode).trim().length > 0)
-        ? String(tournament.accessCode).trim()
-        : ((tournament as any).access_code && String((tournament as any).access_code).trim().length > 0)
-          ? String((tournament as any).access_code).trim()
-          : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
-    ) : null,
-    winner_note: JSON.stringify({
-      game: gameVal,
-      match_category: matchCatVal,
-      access_code: (
-        (tournament.accessCode && String(tournament.accessCode).trim().length > 0)
-          ? String(tournament.accessCode).trim()
-          : ((tournament as any).access_code && String((tournament as any).access_code).trim().length > 0)
-            ? String((tournament as any).access_code).trim()
-            : ('WINX7-' + Math.random().toString(36).substring(2, 8).toUpperCase())
-      ),
-      requires_access_code: Boolean(
-        tournament.requireAccessCode ??
-        tournament.requiresAccessCode ??
-        tournament.requires_access_code ??
-        tournament.require_access_code ??
-        tournament.isPrivate ??
-        (tournament as any).is_private ??
-        false
-      )
-    }),
+    requires_access_code: requiresAccessCodeVal,
+    access_code: accessCodeVal,
     rules: Array.isArray(tournament.rules) ? tournament.rules.join('\n') : String(tournament.rules || ''),
     description: `Compete in ${gameVal} and win instant wallet rewards!`,
     participants: Array.isArray(tournament.participants) ? tournament.participants : [],
     prize_distribution: normalizedPrizeDist,
+    winner_note: JSON.stringify({
+      game: gameVal,
+      match_category: matchCatVal,
+      access_code: accessCodeVal,
+      requires_access_code: requiresAccessCodeVal
+    }),
     created_at: tournament.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   });
 
-  console.log('[DEBUG TRACE 3] tournamentToJson() / minJson() exact "game_category" JSON value:', payload.game_category);
-  console.log('[DEBUG TRACE 4] Supabase INSERT request sending "game_category":', payload.game_category);
+  console.log('[createTournamentInSupabase] Executing write with clean schema columns for tournament:', id);
 
   try {
     await ensureSupabaseAuthSession();
-    await safeSupabaseWrite('tournaments', payload, 'upsert');
-
-    try {
-      const { data: dbCheck } = await supabase.from('tournaments').select('id, title, game, game_category').eq('id', id).single();
-      console.log('[DEBUG TRACE 5] Supabase response returned "game_category":', dbCheck?.game_category ?? dbCheck?.game ?? 'NULL');
-    } catch (checkErr) {
-      console.log('[DEBUG TRACE 5] Supabase response check notice:', checkErr);
+    const writeResult = await safeSupabaseWrite('tournaments', payload, 'upsert');
+    if (writeResult && writeResult.error) {
+      throw writeResult.error;
     }
+
+    // MANDATORY READ-BACK VERIFICATION
+    const { data: dbCheck, error: checkErr } = await supabase
+      .from('tournaments')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (checkErr || !dbCheck) {
+      console.error('[createTournamentInSupabase] Read-back verification failed:', checkErr);
+      throw new Error(`Tournament was written, but verification read-back from the database failed: ${checkErr?.message || 'Row not found'}`);
+    }
+
+    if (!dbCheck.match_id) {
+      console.error('[createTournamentInSupabase] Tournament row exists but match_id is missing:', dbCheck);
+      throw new Error('Tournament was saved, but no Match ID was assigned by the database trigger.');
+    }
+
+    console.log('[Supabase Tournament Created & Verified]:', { id: dbCheck.id, match_id: dbCheck.match_id, title: dbCheck.title });
+    const normalized = normalizeTournamentDoc(dbCheck, id);
+    updateLocalTournamentCache(id, normalized);
 
     return id;
   } catch (err: any) {
@@ -3174,13 +3620,12 @@ export async function updateTournamentInSupabase(
   const maxVal = updates.maxParticipants !== undefined ? Number(updates.maxParticipants) : updates.maxSlots !== undefined ? Number(updates.maxSlots) : undefined;
   const joinedVal = updates.joinedParticipants !== undefined ? Number(updates.joinedParticipants) : updates.filledSlots !== undefined ? Number(updates.filledSlots) : undefined;
   const killVal = updates.perKillPrize !== undefined ? Number(updates.perKillPrize) : updates.perKillReward !== undefined ? Number(updates.perKillReward) : undefined;
-  // Prioritize explicit startTime/match_time to guarantee edited match time is not overridden by stale matchSchedule
   const schedVal = updates.startTime || updates.match_time || updates.matchSchedule || updates.schedule;
 
   let matchDateStr: string | undefined = undefined;
   let dtInfoForCache: any = undefined;
   if (schedVal) {
-    dtInfoForCache = getMatchDateTimeStrings(schedVal);
+    dtInfoForCache = getMatchDateTimeStrings(schedVal, (updates as any).matchDate || (updates as any).match_date);
     matchDateStr = (updates as any).matchDate || (updates as any).match_date || dtInfoForCache.matchDate;
   } else {
     matchDateStr = (updates as any).matchDate || (updates as any).match_date;
@@ -3220,13 +3665,7 @@ export async function updateTournamentInSupabase(
       const amountVal = Number(p.prize ?? p.amount ?? p.reward ?? 0);
       return {
         rankRange: rankLabel,
-        rank_range: rankLabel,
-        rankName: rankLabel,
-        title: rankLabel,
-        label: rankLabel,
         prize: amountVal,
-        amount: amountVal,
-        reward: amountVal,
       };
     });
   }
@@ -3284,21 +3723,16 @@ export async function updateTournamentInSupabase(
     winnerNoteUpdate = (updates as any).winner_note ?? (updates as any).winnerNote;
   }
 
+  // CLEAN UPDATE PAYLOAD WITH ONLY VALID DATABASE COLUMNS
   const payload: Record<string, any> = cleanUndefined({
+    match_id: updates.matchId || (updates as any).match_id || undefined,
     title: updates.title ? String(updates.title).toUpperCase() : undefined,
-    game: gameVal,
     game_category: gameVal || updates.game || (updates as any).gameCategory || (updates as any).game_category,
-    gameCategory: gameVal || updates.game || (updates as any).gameCategory || (updates as any).game_category,
     category_id: updates.categoryId,
     category_name: matchCatVal,
-    match_category: matchCatVal,
-    category: matchCatVal,
     banner_url: bannerImg,
     thumbnail_url: bannerImg,
     image_url: bannerImg,
-    card_image: bannerImg,
-    card_image_url: bannerImg,
-    saved_image_id: updates.savedImageId,
     map_name: mapVal,
     mode: modeVal,
     total_slots: maxVal,
@@ -3323,19 +3757,9 @@ export async function updateTournamentInSupabase(
     updated_at: new Date().toISOString(),
   });
 
-  console.log('[DEBUG TRACE 3] tournamentToJson() / minJson() exact "game_category" JSON value:', payload.game_category);
-  console.log('[DEBUG TRACE 4] Supabase UPDATE request sending "game_category":', payload.game_category);
-
   try {
     await ensureSupabaseAuthSession();
     await safeSupabaseWrite('tournaments', payload, 'update', id);
-
-    try {
-      const { data: dbCheck } = await supabase.from('tournaments').select('id, title, game, game_category').eq('id', id).single();
-      console.log('[DEBUG TRACE 5] Supabase response returned "game_category":', dbCheck?.game_category ?? dbCheck?.game ?? 'NULL');
-    } catch (checkErr) {
-      console.log('[DEBUG TRACE 5] Supabase response check notice:', checkErr);
-    }
   } catch (err: any) {
     console.error('[DEBUG DB Update Match Error]', { recordId: id, error: err?.message || err });
     throw err;
@@ -3367,9 +3791,41 @@ export async function updateUserStatusInSupabase(
   status: UserStatus | string,
   banReason?: string
 ): Promise<void> {
+  const isSuspended = ['suspended', 'blocked', 'banned'].includes(String(status).toLowerCase());
+  const finalReason = banReason || (isSuspended ? 'Account suspended by administrator' : '');
+
+  // 1. Primary: Server-side secure admin update (updates profiles and Supabase Auth with service role)
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/admin/users/update-status', {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userId,
+        status: isSuspended ? 'SUSPENDED' : 'ACTIVE',
+        isSuspended,
+        reason: finalReason,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok || !result.success) {
+      throw new Error(result.message || result.error || 'Server rejected status update');
+    }
+    return;
+  } catch (apiErr: any) {
+    console.warn('[updateUserStatusInSupabase] Backend API notice, falling back to direct DB write:', apiErr?.message || apiErr);
+  }
+
+  // 2. Direct client fallback
   const payload = cleanUndefined({
-    status,
-    ban_reason: banReason || null,
+    status: isSuspended ? 'SUSPENDED' : 'ACTIVE',
+    is_suspended: isSuspended,
+    is_banned: status === 'banned',
+    is_blocked: isSuspended,
+    ban_reason: finalReason,
     updated_at: new Date().toISOString(),
   });
 
@@ -3566,10 +4022,26 @@ export async function updateUserProfileInSupabase(
 
   const nameVal = updates.displayName || updates.username || currentProfile?.name || currentProfile?.username;
   const usernameVal = updates.username || updates.displayName || currentProfile?.username || currentProfile?.name;
-  const ignVal = updates.inGameName !== undefined ? updates.inGameName : (currentProfile?.ff_ign || currentProfile?.in_game_name);
-  const uidVal = updates.inGameId !== undefined ? updates.inGameId : (currentProfile?.ff_uid || currentProfile?.in_game_id);
+  const ffIgnVal = updates.ffIgn !== undefined ? updates.ffIgn : (updates as any).ff_ign !== undefined ? (updates as any).ff_ign : (updates.inGameName !== undefined ? updates.inGameName : (currentProfile?.ff_ign || currentProfile?.in_game_name));
+  const ffUidVal = updates.ffUid !== undefined ? updates.ffUid : (updates as any).ff_uid !== undefined ? (updates as any).ff_uid : (updates.inGameId !== undefined ? updates.inGameId : (currentProfile?.ff_uid || currentProfile?.in_game_id));
+  const bgmiIgnVal = updates.bgmiIgn !== undefined ? updates.bgmiIgn : (updates as any).bgmi_ign !== undefined ? (updates as any).bgmi_ign : currentProfile?.bgmi_ign;
+  const bgmiUidVal = updates.bgmiUid !== undefined ? updates.bgmiUid : (updates as any).bgmi_uid !== undefined ? (updates as any).bgmi_uid : currentProfile?.bgmi_uid;
   const depositVal = updates.walletBalance !== undefined ? Number(updates.walletBalance) : undefined;
   const winningVal = updates.winningBalance !== undefined ? Number(updates.winningBalance) : undefined;
+
+  // Authoritative suspension check: Ensure profile updates or syncs NEVER inadvertently lift suspension
+  const isSuspendedInDb = Boolean(
+    currentProfile?.is_suspended ??
+    currentProfile?.isSuspended ??
+    String(currentProfile?.status || '').toLowerCase() === 'suspended'
+  );
+  const existingBanReason = currentProfile?.ban_reason || currentProfile?.banReason || '';
+  const existingIsBlocked = Boolean(currentProfile?.is_blocked ?? currentProfile?.isBlocked);
+
+  // If user is currently suspended in database, status MUST stay 'suspended' and is_suspended MUST stay true
+  const finalStatus = isSuspendedInDb ? 'suspended' : (updates.status || currentProfile?.status || 'active');
+  const finalIsSuspended = isSuspendedInDb ? true : Boolean(updates.is_suspended ?? updates.isSuspended ?? false);
+  const finalBanReason = isSuspendedInDb ? (updates.banReason || existingBanReason) : updates.banReason;
 
   const payload: Record<string, any> = cleanUndefined({
     id: userId,
@@ -3580,19 +4052,23 @@ export async function updateUserProfileInSupabase(
     phone: finalPhone,
     phone_number: finalPhone,
     mobile: finalPhone,
-    ff_ign: ignVal,
-    free_fire_ign: ignVal,
-    in_game_name: ignVal,
-    ff_uid: uidVal,
-    free_fire_uid: uidVal,
-    in_game_id: uidVal,
+    ff_ign: ffIgnVal,
+    free_fire_ign: ffIgnVal,
+    in_game_name: ffIgnVal,
+    ff_uid: ffUidVal,
+    free_fire_uid: ffUidVal,
+    in_game_id: ffUidVal,
+    bgmi_ign: bgmiIgnVal,
+    bgmi_uid: bgmiUidVal,
     avatar_id: newAvatarId,
     avatar_url: newAvatarUrl,
     deposit_balance: depositVal,
     wallet_balance: depositVal,
     winning_balance: winningVal,
-    status: updates.status || currentProfile?.status || 'active',
-    ban_reason: updates.banReason,
+    status: finalStatus,
+    is_suspended: finalIsSuspended,
+    is_blocked: existingIsBlocked,
+    ban_reason: finalBanReason,
     ...(usernameChanged ? { last_username_change_at: nowIso } : {}),
     ...(ignChanged ? { last_ign_change_at: nowIso } : {}),
     ...(uidChanged ? { last_uid_change_at: nowIso } : {}),
@@ -3601,15 +4077,17 @@ export async function updateUserProfileInSupabase(
   });
 
   try {
+    // Prefer update over upsert since profiles row already exists and INSERT requires elevated permissions
     const { data: updatedDoc, error: saveErr } = await supabase
       .from('profiles')
-      .upsert(payload)
+      .update(payload)
+      .eq('id', userId)
       .select()
       .maybeSingle();
 
     if (saveErr) {
-      console.warn('[updateUserProfileInSupabase direct upsert notice]:', saveErr.message);
-      await safeSupabaseWrite('profiles', payload, 'upsert', userId);
+      console.warn('[updateUserProfileInSupabase direct update notice]:', saveErr.message);
+      await safeSupabaseWrite('profiles', payload, 'update', userId);
     }
 
     // Update local cache
@@ -4313,6 +4791,26 @@ export async function deleteSavedImageFromSupabase(imageId: string, storagePathO
 // System Settings in app_config table
 export async function saveSystemSettingsInSupabase(settings: SystemSettings): Promise<void> {
   await ensureSupabaseAuthSession();
+
+  // Enforce staff restriction: Staff accounts are strictly forbidden from modifying system & version settings
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+      const role = String(profile?.role || '').toLowerCase();
+      if (role === 'staff') {
+        throw new Error('Access Denied: Staff accounts do not have permission to modify app version or system configurations.');
+      }
+    }
+  } catch (authErr: any) {
+    if (authErr?.message?.includes('Access Denied')) {
+      throw authErr;
+    }
+  }
   
   // 1. Save full settings object to localStorage for instant local reactivity
   try {
@@ -4321,8 +4819,9 @@ export async function saveSystemSettingsInSupabase(settings: SystemSettings): Pr
 
   const now = new Date().toISOString();
 
-  // 2. Discover existing columns in public.app_config for id = 'general'
+  // 2. Discover existing columns and existing json_data in public.app_config for id = 'general'
   let existingColumns: Set<string> | null = null;
+  let existingJsonData: Record<string, any> = {};
   try {
     const { data: generalRow } = await supabase
       .from('app_config')
@@ -4332,6 +4831,9 @@ export async function saveSystemSettingsInSupabase(settings: SystemSettings): Pr
 
     if (generalRow) {
       existingColumns = new Set(Object.keys(generalRow));
+      if (generalRow.json_data && typeof generalRow.json_data === 'object' && !Array.isArray(generalRow.json_data)) {
+        existingJsonData = { ...generalRow.json_data };
+      }
     } else {
       const { data: anyRow } = await supabase
         .from('app_config')
@@ -4344,6 +4846,23 @@ export async function saveSystemSettingsInSupabase(settings: SystemSettings): Pr
   } catch (e) {
     console.warn('[saveSystemSettingsInSupabase] schema probe notice:', e);
   }
+
+  // Version fields for Android User App
+  const minVer = String(settings.minimumAppVersion || settings.minAppVersion || '1.0.7').trim();
+  const latestVer = String(settings.latestAppVersion || settings.appVersion || minVer || '1.0.8').trim();
+  const updMsg = String(settings.updateMessage || '').trim();
+  const updUrl = String(settings.updateUrl || '').trim();
+  const forceUpd = Boolean(settings.isForceUpdate);
+
+  const updatedJsonData = {
+    ...existingJsonData,
+    latest_app_version: latestVer,
+    minimum_app_version: minVer,
+    min_app_version: minVer,
+    update_message: updMsg,
+    update_url: updUrl,
+    is_force_update: forceUpd,
+  };
 
   // 3. Complete field dictionary for public.app_config row id = 'general'
   const fullFieldDict: Record<string, any> = {
@@ -4363,7 +4882,13 @@ export async function saveSystemSettingsInSupabase(settings: SystemSettings): Pr
     is_deposit_on: Boolean(settings.depositEnabled ?? true),
     is_referral_on: Boolean(settings.referralEnabled ?? true),
     referral_bonus: Number(settings.referralBonus ?? 25),
-    min_app_version: String(settings.minAppVersion || '1.0.0'),
+    min_app_version: minVer,
+    minimum_app_version: minVer,
+    latest_app_version: latestVer,
+    update_message: updMsg,
+    update_url: updUrl,
+    is_force_update: forceUpd,
+    json_data: updatedJsonData,
     upi_id: settings.upiId || '',
     upi_name: settings.upiName || '',
     custom_qr_link: settings.customQrLink || '',
@@ -4495,12 +5020,11 @@ export async function saveSystemSettingsInSupabase(settings: SystemSettings): Pr
 
   console.log('[saveSystemSettingsInSupabase] Confirmed settings updated in Supabase app_config (id=general):', {
     id: verifiedRow.id,
-    whatsapp_contact: verifiedRow.whatsapp_contact,
-    telegram_contact: verifiedRow.telegram_contact,
-    instagram_contact: verifiedRow.instagram_contact,
-    youtube_contact: verifiedRow.youtube_contact,
-    privacy_policy_text: verifiedRow.privacy_policy_text ? `${verifiedRow.privacy_policy_text.length} chars` : '',
-    terms_and_fair_play_rules_text: verifiedRow.terms_and_fair_play_rules_text ? `${verifiedRow.terms_and_fair_play_rules_text.length} chars` : '',
+    min_app_version: verifiedRow.min_app_version,
+    latest_app_version: verifiedRow.json_data?.latest_app_version || verifiedRow.latest_app_version,
+    minimum_app_version: verifiedRow.json_data?.minimum_app_version || verifiedRow.minimum_app_version,
+    is_force_update: verifiedRow.json_data?.is_force_update,
+    update_url: verifiedRow.json_data?.update_url,
     updated_at: verifiedRow.updated_at
   });
 }
@@ -4661,34 +5185,66 @@ export function normalizeStaffMemberDoc(doc: any): StaffMember {
 
   const staffIdVal = doc.staff_id || doc.staffId || doc.staff_code || doc.id || '';
   const userIdVal = doc.user_id || doc.userId || profile.id || '';
-  const nameVal = doc.name || doc.display_name || doc.displayName || profile.name || profile.display_name || profile.username || 'Staff Member';
-  const emailVal = doc.email || profile.email || '';
-  const phoneVal = doc.phone || profile.phone || '';
-  const ffUidVal = doc.ff_uid || doc.ffUid || doc.in_game_id || doc.inGameId || profile.in_game_id || '';
-  const ffIgnVal = doc.ff_ign || doc.ffIgn || doc.in_game_name || doc.inGameName || profile.in_game_name || '';
+  const nameVal = doc.name || doc.staff_name || doc.display_name || doc.displayName || profile.name || profile.display_name || profile.username || 'Staff Member';
+  const emailVal = doc.email || doc.user_email || profile.email || '';
+  const phoneVal = doc.phone || doc.user_phone || profile.phone || '';
+  
+  // Handle game specific IGNs from profile or RPC fields
+  const ffIgnVal = doc.ff_ign || doc.user_ff_ign || doc.ffIgn || doc.in_game_name || doc.inGameName || profile.ff_ign || profile.in_game_name || '';
+  const bgmiIgnVal = doc.bgmi_ign || doc.user_bgmi_ign || doc.bgmiIgn || profile.bgmi_ign || '';
+
+  // Extract game assignment directly from public.staff_members authoritative source
+  const rawAssigned = doc.assigned_game !== undefined ? doc.assigned_game : (doc.assignedGame !== undefined ? doc.assignedGame : (doc.game_assignment || profile.assigned_game || ''));
+  let assignedGame: 'Free Fire' | 'BGMI' | string | undefined = undefined;
+
+  if (rawAssigned && typeof rawAssigned === 'string') {
+    const lower = rawAssigned.trim().toLowerCase();
+    if (lower.includes('free fire') || lower === 'freefire' || lower === 'ff') {
+      assignedGame = 'Free Fire';
+    } else if (lower.includes('bgmi') || lower.includes('battlegrounds') || lower === 'pubg') {
+      assignedGame = 'BGMI';
+    } else if (lower.length > 0 && lower !== 'null' && lower !== 'undefined' && lower !== 'not assigned') {
+      assignedGame = rawAssigned.trim();
+    }
+  }
+
+  // Clean displayed notes by removing internal [Game: ...] tag if desired
+  let cleanNotes = doc.notes || doc.admin_notes || doc.p_notes || '';
+  if (cleanNotes && cleanNotes.includes('[Game:')) {
+    cleanNotes = cleanNotes.replace(/\[Game:\s*[^\]]+\]\s*/gi, '').trim();
+  }
+
+  // Authoritative staff_members primary key row ID
+  const staffRowId = doc.staff_member_id || doc.staff_member_row_id || doc.staffRecordId || (doc.id && doc.id !== userIdVal ? doc.id : doc.id);
 
   return {
-    id: doc.id || staffIdVal || crypto.randomUUID(),
+    id: staffRowId || staffIdVal || crypto.randomUUID(),
+    staffRecordId: staffRowId,
+    staff_member_id: staffRowId,
     staffId: staffIdVal,
     staff_id: staffIdVal,
     userId: userIdVal,
     user_id: userIdVal,
     name: nameVal,
     displayName: nameVal,
+    username: profile.username || nameVal,
     email: emailVal,
     phone: phoneVal,
-    ffUid: ffUidVal,
-    ff_uid: ffUidVal,
-    inGameId: ffUidVal,
     ffIgn: ffIgnVal,
     ff_ign: ffIgnVal,
-    inGameName: ffIgnVal,
+    bgmiIgn: bgmiIgnVal,
+    bgmi_ign: bgmiIgnVal,
+    inGameName: ffIgnVal || bgmiIgnVal,
     avatarUrl: doc.avatar_url || doc.avatarUrl || profile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     avatar_url: doc.avatar_url || doc.avatarUrl || profile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
     role: 'STAFF',
     status: status,
-    notes: doc.notes || doc.admin_notes || doc.p_notes || '',
-    adminNotes: doc.notes || doc.admin_notes || doc.p_notes || '',
+    assignedGame: assignedGame,
+    assigned_game: assignedGame,
+    gameAssignment: assignedGame,
+    game_assignment: assignedGame,
+    notes: cleanNotes,
+    adminNotes: cleanNotes,
     joinedDate: doc.created_at || doc.joined_date || doc.joinedDate || new Date().toISOString(),
     created_at: doc.created_at || doc.joined_date || new Date().toISOString(),
     approvedDate: doc.approved_at || doc.approved_date || doc.created_at || new Date().toISOString(),
@@ -4699,41 +5255,55 @@ export function normalizeStaffMemberDoc(doc: any): StaffMember {
 
 export async function fetchStaffMembersFromSupabase(): Promise<StaffMember[]> {
   try {
-    const { data, error } = await supabase.rpc('get_staff_members');
-    if (error) {
-      console.warn('[Staff RPC] get_staff_members notice:', error.message || error);
-      // Fallback query to staff_members table joined with profiles if RPC is missing
-      const { data: tableData, error: tableErr } = await supabase
-        .from('staff_members')
-        .select(`
-          *,
-          profile:profiles (
-            id,
-            name,
-            display_name,
-            email,
-            phone,
-            in_game_id,
-            in_game_name,
-            avatar_url,
-            status
-          )
-        `)
-        .order('created_at', { ascending: false });
+    await ensureSupabaseAuthSession();
 
-      if (tableErr) {
-        throw error;
-      }
+    // 1. Fetch from RPC to get the joined data that bypasses RLS for profile details
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('get_staff_members');
 
-      if (tableData && Array.isArray(tableData)) {
-        return tableData.map((item: any) => normalizeStaffMemberDoc(item));
-      }
+    // 2. Direct query to public.staff_members table as the authoritative source for assigned_game
+    const { data: staffRows, error: staffErr } = await supabase
+      .from('staff_members')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (rpcErr && staffErr) {
+      console.error('[Staff] Both RPC and direct table select failed:', { rpcErr, staffErr });
+      throw new Error(rpcErr.message || staffErr.message || 'Failed to fetch staff members');
     }
 
-    if (data && Array.isArray(data)) {
-      return data.map((item: any) => normalizeStaffMemberDoc(item));
-    }
-    return [];
+    const rpcList = Array.isArray(rpcData) ? rpcData : [];
+    const tableList = Array.isArray(staffRows) ? staffRows : [];
+
+    // Map by user_id for merging
+    const rpcMap = new Map<string, any>();
+    rpcList.forEach(r => {
+      if (r.user_id) rpcMap.set(r.user_id, r);
+    });
+
+    // Merge logic: Base is the authoritative table rows (so we don't miss newly created staff)
+    // and we augment with RPC data which contains profile details (name, email, phone, etc.)
+    const mergedList = tableList.map((tableRow: any) => {
+      const rpcRow = rpcMap.get(tableRow.user_id) || {};
+      
+      // Pass the merged object to normalizeStaffMemberDoc
+      return normalizeStaffMemberDoc({
+        ...rpcRow,          // RPC fields (staff_name, user_email, user_ff_ign, etc.)
+        ...tableRow,        // Table fields (assigned_game, status, created_at, id) override
+        id: tableRow.id,    // Always use the table's UUID for updates
+        staff_member_id: tableRow.id,
+        staffRecordId: tableRow.id
+      });
+    });
+
+    // If there are any RPC records that somehow aren't in the table list, add them as well
+    const tableUserIds = new Set(tableList.map(r => r.user_id).filter(Boolean));
+    rpcList.forEach((rpcRow: any) => {
+      if (rpcRow.user_id && !tableUserIds.has(rpcRow.user_id)) {
+        mergedList.push(normalizeStaffMemberDoc(rpcRow));
+      }
+    });
+
+    return mergedList;
   } catch (err: any) {
     console.error('fetchStaffMembersFromSupabase error:', err);
     throw new Error(formatStaffError(err));
@@ -4742,28 +5312,264 @@ export async function fetchStaffMembersFromSupabase(): Promise<StaffMember[]> {
 
 export async function createStaffMemberInSupabase(
   userId: string,
-  notes?: string
+  notes?: string,
+  assignedGame?: 'Free Fire' | 'BGMI' | string
 ): Promise<{ success: boolean; staffId?: string; error?: string; data?: any }> {
-  try {
-    const { data, error } = await supabase.rpc('create_staff_member', {
-      p_user_id: userId,
-      p_notes: notes || ''
-    });
+  // Embed the game tag in notes for robust persistence across all RPC versions & databases
+  const gameTag = assignedGame ? `[Game: ${assignedGame}]` : '';
+  const fullNotes = notes ? (gameTag ? `${gameTag} ${notes}` : notes) : (gameTag || '');
 
-    if (error) {
-      throw error;
+  try {
+    let rpcRes: any = null;
+
+    // 1. Try with p_assigned_game first
+    try {
+      const res1 = await supabase.rpc('create_staff_member', {
+        p_user_id: userId,
+        p_notes: fullNotes,
+        p_assigned_game: assignedGame || 'Free Fire'
+      });
+      if (!res1.error) {
+        rpcRes = res1.data;
+      } else if (
+        res1.error.code === '23505' ||
+        /already exists|duplicate key|unique constraint/i.test(res1.error.message || res1.error.details || '')
+      ) {
+        throw res1.error;
+      }
+    } catch (e: any) {
+      if (
+        e?.code === '23505' ||
+        /already exists|duplicate key|unique constraint/i.test(e?.message || e?.details || '')
+      ) {
+        throw e;
+      }
+      // ignore other RPC resolution errors and try fallback
+    }
+
+    // 2. Fallback to standard 2-param RPC
+    if (!rpcRes) {
+      const res2 = await supabase.rpc('create_staff_member', {
+        p_user_id: userId,
+        p_notes: fullNotes
+      });
+      if (res2.error) {
+        throw res2.error;
+      }
+      rpcRes = res2.data;
     }
 
     let generatedStaffId = '';
-    if (typeof data === 'string') {
-      generatedStaffId = data;
-    } else if (data && typeof data === 'object') {
-      generatedStaffId = data.staff_id || data.staffId || data.id || '';
+    if (typeof rpcRes === 'string') {
+      generatedStaffId = rpcRes;
+    } else if (rpcRes && typeof rpcRes === 'object') {
+      generatedStaffId = rpcRes.staff_id || rpcRes.staffId || rpcRes.id || '';
     }
 
-    return { success: true, staffId: generatedStaffId, data };
+    // 3. Update staff_members and profiles table with assigned_game for immediate persistence
+    if (assignedGame) {
+      try {
+        if (generatedStaffId) {
+          await supabase.from('staff_members').update({
+            assigned_game: assignedGame,
+            notes: fullNotes
+          }).or(`staff_id.eq.${generatedStaffId},staff_code.eq.${generatedStaffId}`);
+        }
+        await supabase.from('staff_members').update({
+          assigned_game: assignedGame,
+          notes: fullNotes
+        }).eq('user_id', userId);
+
+        await supabase.from('profiles').update({
+          assigned_game: assignedGame
+        }).eq('id', userId);
+      } catch (tableUpdateErr) {
+        console.debug('[createStaffMemberInSupabase] Table update notice:', tableUpdateErr);
+      }
+
+      // Save to localStorage cache as well
+      try {
+        if (generatedStaffId) localStorage.setItem(`staff_game_assignment_${generatedStaffId}`, assignedGame);
+        if (userId) localStorage.setItem(`staff_game_assignment_${userId}`, assignedGame);
+      } catch {
+        // ignore
+      }
+    }
+
+    return { success: true, staffId: generatedStaffId, data: rpcRes };
   } catch (err: any) {
+    const isConflictError = 
+      err?.code === '23505' || 
+      /already exists|duplicate key|unique constraint/i.test(err?.message || err?.details || String(err));
+
+    if (isConflictError) {
+      console.log('[createStaffMemberInSupabase] Conflict detected on user_id, reactivating existing staff member...');
+      
+      // 1. Try to fetch the existing staff_id
+      let resolvedStaffId = '';
+      try {
+        const { data: existingRecords } = await supabase
+          .from('staff_members')
+          .select('id, staff_id, staff_code')
+          .eq('user_id', userId)
+          .limit(1);
+        if (existingRecords && existingRecords[0]) {
+          resolvedStaffId = existingRecords[0].staff_id || existingRecords[0].staff_code || existingRecords[0].id || '';
+        }
+      } catch (selectErr) {
+        console.debug('[createStaffMemberInSupabase] Fetch existing staff row failed:', selectErr);
+      }
+
+      // 2. Perform direct table updates to reactivate
+      try {
+        await supabase.from('profiles').update({
+          role: 'STAFF',
+          assigned_game: assignedGame || 'Free Fire',
+          updated_at: new Date().toISOString()
+        }).eq('id', userId);
+
+        await supabase.from('staff_members').update({
+          status: 'ACTIVE',
+          assigned_game: assignedGame || 'Free Fire',
+          notes: fullNotes,
+          updated_at: new Date().toISOString()
+        }).eq('user_id', userId);
+        
+        console.log('[createStaffMemberInSupabase] Successfully reactivated existing staff:', resolvedStaffId || userId);
+        return { success: true, staffId: resolvedStaffId || 'WX7-STF-RE', data: { user_id: userId } };
+      } catch (updateErr: any) {
+        console.error('[createStaffMemberInSupabase] Direct update reactivation failed:', updateErr);
+        return { success: false, error: formatStaffError(updateErr) };
+      }
+    }
+
     return { success: false, error: formatStaffError(err) };
+  }
+}
+
+export async function updateStaffMemberGameAssignmentInSupabase(
+  staffId: string,
+  assignedGame: 'Free Fire' | 'BGMI' | string,
+  extra?: { id?: string; userId?: string; staffCode?: string; currentNotes?: string }
+): Promise<{ success: boolean; error?: string; data?: any }> {
+  try {
+    await ensureSupabaseAuthSession();
+
+    // Resolve authoritative staff_members.id (Primary Key UUID of public.staff_members)
+    // Requirement 5: Make sure "staffId" is the "staff_members.id", NOT the user_id and NOT the staff_id text.
+    let targetStaffRowId = extra?.id || staffId;
+    const staffCode = extra?.staffCode || (!UUID_REGEX.test(staffId) ? staffId : undefined);
+    const userId = extra?.userId;
+
+    if (!targetStaffRowId || !UUID_REGEX.test(targetStaffRowId) || (userId && targetStaffRowId === userId)) {
+      try {
+        let lookupQuery = supabase.from('staff_members').select('id, user_id, staff_id');
+        if (staffCode) {
+          lookupQuery = lookupQuery.or(`staff_id.eq.${staffCode},staff_code.eq.${staffCode}`);
+        } else if (userId) {
+          lookupQuery = lookupQuery.eq('user_id', userId);
+        }
+        const { data: foundRows, error: lookupErr } = await lookupQuery.limit(1);
+        if (lookupErr) {
+          console.warn('[updateStaffMemberGameAssignmentInSupabase] Lookup notice:', lookupErr);
+        }
+        if (foundRows && foundRows[0]?.id) {
+          targetStaffRowId = foundRows[0].id;
+        }
+      } catch (lookupEx) {
+        console.warn('[updateStaffMemberGameAssignmentInSupabase] Lookup exception:', lookupEx);
+      }
+    }
+
+    console.log('[updateStaffMemberGameAssignmentInSupabase] Executing update on staff_members:', {
+      targetStaffRowId,
+      assignedGame,
+      staffCode,
+      userId
+    });
+
+    // Requirement 1: supabase.from('staff_members').update({ assigned_game: selectedGame, updated_at: new Date().toISOString() }).eq('id', staffId)
+    const updatePayload = {
+      assigned_game: assignedGame,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: updateData, error: updateError } = await supabase
+      .from('staff_members')
+      .update(updatePayload)
+      .eq('id', targetStaffRowId)
+      .select();
+
+    console.log('[updateStaffMemberGameAssignmentInSupabase] Supabase update response:', {
+      targetStaffRowId,
+      assignedGame,
+      data: updateData,
+      error: updateError
+    });
+
+    // Requirement 2 & 3: Check returned { data, error }. If error exists, display REAL Supabase error
+    if (updateError) {
+      console.error('[updateStaffMemberGameAssignmentInSupabase] Database error:', updateError);
+      return { success: false, error: updateError.message || updateError.details || 'Supabase error updating staff_members' };
+    }
+
+    if (!updateData || updateData.length === 0) {
+      console.warn('[updateStaffMemberGameAssignmentInSupabase] 0 rows matched by id:', targetStaffRowId);
+      let fallbackSuccess = false;
+      let fbData: any = null;
+
+      if (userId) {
+        const { data: fbDataUser, error: fbErrUser } = await supabase
+          .from('staff_members')
+          .update(updatePayload)
+          .eq('user_id', userId)
+          .select();
+        if (!fbErrUser && fbDataUser && fbDataUser.length > 0) {
+          fallbackSuccess = true;
+          fbData = fbDataUser;
+        }
+      }
+
+      if (!fallbackSuccess && staffCode) {
+        const { data: fbDataCode, error: fbErrCode } = await supabase
+          .from('staff_members')
+          .update(updatePayload)
+          .or(`staff_id.eq.${staffCode},staff_code.eq.${staffCode}`)
+          .select();
+        if (!fbErrCode && fbDataCode && fbDataCode.length > 0) {
+          fallbackSuccess = true;
+          fbData = fbDataCode;
+        }
+      }
+
+      if (!fallbackSuccess) {
+        return {
+          success: false,
+          error: `No staff record found in public.staff_members matching ID "${targetStaffRowId}". Please verify your SUPERADMIN permissions.`
+        };
+      }
+
+      // Also update profiles for consistency
+      if (userId) {
+        try {
+          await supabase.from('profiles').update({ assigned_game: assignedGame }).eq('id', userId);
+        } catch {}
+      }
+
+      return { success: true, data: fbData };
+    }
+
+    // Also update profiles for consistency
+    if (userId) {
+      try {
+        await supabase.from('profiles').update({ assigned_game: assignedGame }).eq('id', userId);
+      } catch {}
+    }
+
+    return { success: true, data: updateData };
+  } catch (err: any) {
+    console.error('[updateStaffMemberGameAssignmentInSupabase] Unexpected error:', err);
+    return { success: false, error: err?.message || formatStaffError(err) };
   }
 }
 
@@ -5648,99 +6454,199 @@ export const joinTournament = joinMatchWithAccessCode;
    ========================================================================== */
 
 export async function fetchResultRequestsFromSupabase(): Promise<ResultRequest[]> {
-  try {
-    let requests: ResultRequest[] = [];
+  let requests: ResultRequest[] = [];
 
-    // 1. Try dedicated result_requests table
-    const { data: tableData, error: tableErr } = await supabase
-      .from('result_requests')
-      .select('*')
-      .order('submitted_at', { ascending: false });
-
-    if (!tableErr && tableData) {
-      requests = tableData.map((row: any) => ({
-        id: row.id,
-        matchId: row.match_id || row.matchId,
-        matchTitle: row.match_title || row.matchTitle || 'Match Result',
-        matchCategory: row.match_category || row.matchCategory,
-        matchType: row.match_type || row.matchType,
-        map: row.map,
-        entryFee: Number(row.entry_fee ?? row.entryFee ?? 0),
-        prizePool: Number(row.prize_pool ?? row.prizePool ?? 0),
-        matchDateTime: row.match_date_time || row.matchDateTime,
-        matchStatus: row.match_status || row.matchStatus,
-        submittedByStaffId: row.submitted_by_staff_id || row.submittedByStaffId || 'Staff',
-        submittedByStaffName: row.submitted_by_staff_name || row.submittedByStaffName || 'Staff Member',
-        submittedByStaffEmail: row.submitted_by_staff_email || row.submittedByStaffEmail,
-        submittedAt: row.submitted_at || row.submittedAt || new Date().toISOString(),
-        status: (row.status || 'PENDING').toUpperCase() as ResultRequestStatus,
-        participantCount: Number(row.participant_count ?? row.participantCount ?? (row.participant_results?.length || 0)),
-        participantResults: Array.isArray(row.participant_results) ? row.participant_results : (Array.isArray(row.participantResults) ? row.participantResults : []),
-        resultSummary: typeof row.result_summary === 'object' && row.result_summary ? row.result_summary : (typeof row.resultSummary === 'object' && row.resultSummary ? row.resultSummary : {}),
-        evidenceUrls: Array.isArray(row.evidence_urls) ? row.evidence_urls : (Array.isArray(row.evidenceUrls) ? row.evidenceUrls : []),
-        proofNotes: row.proof_notes || row.proofNotes,
-        rejectionReason: row.rejection_reason || row.rejectionReason,
-        rejectedAt: row.rejected_at || row.rejectedAt,
-        rejectedBy: row.rejected_by || row.rejectedBy,
-        approvedAt: row.approved_at || row.approvedAt,
-        approvedBy: row.approved_by || row.approvedBy,
-        updatedAt: row.updated_at || row.updatedAt || new Date().toISOString()
-      }));
-    } else {
-      // 2. Fallback to app_config table key 'result_requests'
-      const { data: configData } = await supabase
-        .from('app_config')
-        .select('*')
-        .eq('id', 'result_requests')
-        .maybeSingle();
-
-      if (configData) {
-        const raw = configData.value ?? configData.data ?? configData.payload ?? configData.content;
-        let list: any[] = [];
-        if (Array.isArray(raw)) {
-          list = raw;
-        } else if (typeof raw === 'string') {
-          try { list = JSON.parse(raw); } catch {}
-        }
-        if (Array.isArray(list)) {
-          requests = list.map((item: any) => ({
-            id: item.id || `rr_${item.matchId}_${Date.now()}`,
-            matchId: item.matchId || item.match_id,
-            matchTitle: item.matchTitle || item.match_title || 'Match Result',
-            matchCategory: item.matchCategory || item.match_category,
-            matchType: item.matchType || item.match_type,
-            map: item.map,
-            entryFee: Number(item.entryFee ?? item.entry_fee ?? 0),
-            prizePool: Number(item.prizePool ?? item.prize_pool ?? 0),
-            matchDateTime: item.matchDateTime || item.match_date_time,
-            matchStatus: item.matchStatus || item.match_status,
-            submittedByStaffId: item.submittedByStaffId || item.submitted_by_staff_id || 'Staff',
-            submittedByStaffName: item.submittedByStaffName || item.submitted_by_staff_name || 'Staff Member',
-            submittedByStaffEmail: item.submittedByStaffEmail || item.submitted_by_staff_email,
-            submittedAt: item.submittedAt || item.submitted_at || new Date().toISOString(),
-            status: (item.status || 'PENDING').toUpperCase() as ResultRequestStatus,
-            participantCount: Number(item.participantCount ?? item.participant_count ?? (item.participantResults?.length || 0)),
-            participantResults: Array.isArray(item.participantResults) ? item.participantResults : (Array.isArray(item.participant_results) ? item.participant_results : []),
-            resultSummary: typeof item.resultSummary === 'object' && item.resultSummary ? item.resultSummary : (typeof item.result_summary === 'object' && item.result_summary ? item.result_summary : {}),
-            evidenceUrls: Array.isArray(item.evidenceUrls) ? item.evidenceUrls : (Array.isArray(item.evidence_urls) ? item.evidence_urls : []),
-            proofNotes: item.proofNotes || item.proof_notes,
-            rejectionReason: item.rejectionReason || item.rejection_reason,
-            rejectedAt: item.rejectedAt || item.rejected_at,
-            rejectedBy: item.rejectedBy || item.rejected_by,
-            approvedAt: item.approvedAt || item.approved_at,
-            approvedBy: item.approvedBy || item.approved_by,
-            updatedAt: item.updatedAt || item.updated_at || new Date().toISOString()
-          }));
-        }
-      }
-    }
-
-    // Sort descending by submittedAt
-    return requests.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
-  } catch (err) {
-    console.warn('[Supabase] Error fetching result requests:', err);
-    return [];
+  // 1. Get authenticated user and profile role for diagnostics and role checks
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  let profileRole: string | null = null;
+  if (authUser?.id) {
+    const { data: prof } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', authUser.id)
+      .maybeSingle();
+    profileRole = prof?.role || null;
   }
+
+  // 2. Fetch tournaments map for relationship fallback & fast lookups
+  let tournamentsMap = new Map<string, any>();
+  try {
+    const { data: tournsData } = await supabase
+      .from('tournaments')
+      .select('id, match_id, title, game_category, status, map_name, mode, entry_fee, prize_pool, kill_reward, total_slots, joined_slots, match_time, match_date');
+    if (tournsData && Array.isArray(tournsData)) {
+      tournsData.forEach((t: any) => {
+        if (t.id) tournamentsMap.set(String(t.id).toLowerCase(), t);
+        if (t.match_id) tournamentsMap.set(String(t.match_id).toLowerCase(), t);
+      });
+    }
+  } catch (tErr) {
+    console.warn('[Supabase] Could not preload tournaments for result request enrichment:', tErr);
+  }
+
+  // 3. Fetch all profiles & registrations for real participant data resolution (registrations.user_id = profiles.id)
+  let profilesMap = new Map<string, any>();
+  try {
+    const { data: allProfiles } = await supabase
+      .from('profiles')
+      .select('id, full_name, display_name, username, name, email, phone, ff_ign, bgmi_ign, role');
+    if (allProfiles && Array.isArray(allProfiles)) {
+      allProfiles.forEach((p: any) => {
+        if (p.id) profilesMap.set(String(p.id).toLowerCase(), p);
+      });
+    }
+  } catch (pErr) {
+    console.warn('[Supabase] Could not preload profiles:', pErr);
+  }
+
+  let registrationsMap = new Map<string, any>();
+  try {
+    const { data: allRegs } = await supabase
+      .from('registrations')
+      .select('id, tournament_id, user_id, slot_number, rank_position, kills, winnings, status');
+    if (allRegs && Array.isArray(allRegs)) {
+      allRegs.forEach((r: any) => {
+        if (r.tournament_id && r.user_id) {
+          registrationsMap.set(`${String(r.tournament_id).toLowerCase()}_${String(r.user_id).toLowerCase()}`, r);
+        }
+      });
+    }
+  } catch (rErr) {
+    console.warn('[Supabase] Could not preload registrations:', rErr);
+  }
+
+  // 4. Query result_requests joining tournament relationship (result_requests.tournament_id -> tournaments.id)
+  const queryStr = '*, tournaments!tournament_id(id, match_id, title, game_category, status, map_name, mode, entry_fee, prize_pool, kill_reward, total_slots, joined_slots, match_time, match_date)';
+  
+  const { data: tableData, error: tableErr } = await supabase
+    .from('result_requests')
+    .select(queryStr)
+    .order('created_at', { ascending: false });
+
+  // 5. Diagnostic Console Logs (as requested by User Requirements)
+  console.log('[RESULT VERIFY] current auth user ID:', authUser?.id || 'none');
+  console.log('[RESULT VERIFY] current profile role:', profileRole || 'none');
+  console.log('[RESULT VERIFY] Supabase query being executed: supabase.from("result_requests").select("' + queryStr + '")');
+  console.log('[RESULT VERIFY] raw data returned:', tableData);
+  console.log('[RESULT VERIFY] raw error returned:', tableErr);
+  console.log('[RESULT VERIFY] returned row count:', tableData?.length ?? 0);
+
+  if (tableErr) {
+    console.error('[RESULT VERIFY] Supabase query error:', tableErr);
+    throw new Error(`Failed to fetch result requests: ${tableErr.message}`);
+  }
+
+  if (tableData && Array.isArray(tableData) && tableData.length > 0) {
+    requests = tableData.map((row: any) => {
+      const matchKey = String(row.tournament_id || row.match_id || row.matchId || '').toLowerCase();
+      const tourn = row.tournaments || tournamentsMap.get(matchKey);
+      const staffProfile = profilesMap.get(String(row.submitted_by || row.submitted_by_staff_id || '').toLowerCase());
+
+      const tournamentUuid = tourn?.id || row.tournament_id || row.tournamentId || row.match_id;
+      const resolvedMatchId = tourn?.match_id || row.match_id || row.matchId || tournamentUuid;
+      const resolvedTitle = tourn?.title || row.match_title || row.matchTitle || 'Match Result';
+      const resolvedGame = tourn?.game_category || row.game_category || row.match_category || 'BGMI';
+      const resolvedType = tourn?.mode || row.match_type || row.matchType || 'Solo';
+      const resolvedMap = tourn?.map_name || row.map || 'Erangel';
+      const resolvedEntryFee = Number(tourn?.entry_fee ?? row.entry_fee ?? row.entryFee ?? 0);
+      const resolvedPrizePool = Number(tourn?.prize_pool ?? row.prize_pool ?? row.prizePool ?? 0);
+      const resolvedStatus = tourn?.status || row.match_status || row.matchStatus || 'LIVE';
+
+      const resolvedStaffName = row.submitted_by_staff_name || staffProfile?.display_name || staffProfile?.full_name || staffProfile?.username || staffProfile?.email || (row.submitted_by ? `Staff (${String(row.submitted_by).slice(0, 8)})` : 'Staff Member');
+      const resolvedStaffEmail = row.submitted_by_staff_email || staffProfile?.email;
+
+      // Log required diagnostics per row
+      console.log('[RESULT VERIFY] result_request fetched:', row.id);
+      console.log('[RESULT VERIFY] result_request status:', row.status);
+
+      // Raw submitted results array
+      const rawParticipantResults = Array.isArray(row.submitted_results)
+        ? row.submitted_results
+        : (Array.isArray(row.participant_results) ? row.participant_results : []);
+
+      console.log('[RESULT VERIFY] submitted_results:', rawParticipantResults);
+
+      const isBgmiGame = Boolean(
+        (resolvedGame || resolvedTitle || '').toUpperCase().includes('BGMI') ||
+        (resolvedGame || resolvedTitle || '').toUpperCase().includes('BATTLEGROUND') ||
+        (resolvedGame || resolvedTitle || '').toUpperCase().includes('PUBG')
+      );
+
+      // Map participant results through registrations.user_id = profiles.id
+      const enrichedParticipants = rawParticipantResults.map((p: any, idx: number) => {
+        const uId = (p.user_id || p.userId || p.userAuthUid || p.uid || p.id || '').toString().trim();
+        const prof = profilesMap.get(uId.toLowerCase());
+        const regKey = `${String(tournamentUuid).toLowerCase()}_${uId.toLowerCase()}`;
+        const reg = registrationsMap.get(regKey);
+
+        console.log('[RESULT VERIFY] resolved participant profile:', prof);
+
+        // Game IGN resolution: BGMI -> profiles.bgmi_ign; Free Fire -> profiles.ff_ign
+        // Do NOT use registrations.ff_ign as authoritative current game IGN
+        const resolvedGameIgn = isBgmiGame
+          ? (prof?.bgmi_ign || p.inGameName || p.gameIgn || p.ign || 'N/A')
+          : (prof?.ff_ign || p.inGameName || p.gameIgn || p.ign || 'N/A');
+
+        const resolvedUserName = prof?.name || prof?.full_name || prof?.display_name || prof?.username || p.username || p.name || 'Player';
+        const resolvedUserEmail = prof?.email || p.email || 'N/A';
+        const resolvedUserPhone = prof?.phone || p.phone || 'N/A';
+
+        return {
+          ...p,
+          userId: uId,
+          user_id: uId,
+          username: resolvedUserName,
+          displayName: resolvedUserName,
+          name: resolvedUserName,
+          email: resolvedUserEmail,
+          phone: resolvedUserPhone,
+          inGameName: resolvedGameIgn,
+          gameIgn: resolvedGameIgn,
+          rank: Number(p.rank ?? p.rank_position ?? reg?.rank_position ?? (idx + 1)),
+          kills: Number(p.kills ?? reg?.kills ?? 0),
+          prizeWon: Number(p.prizeWon ?? p.winnings ?? reg?.winnings ?? 0),
+          slotNumber: p.slotNumber || p.slot_number || p.slot || reg?.slot_number || (idx + 1)
+        };
+      });
+
+      return {
+        id: row.id,
+        tournamentId: tournamentUuid,
+        tournament_id: tournamentUuid,
+        matchId: resolvedMatchId,
+        matchTitle: resolvedTitle,
+        matchCategory: resolvedGame,
+        matchType: resolvedType,
+        map: resolvedMap,
+        entryFee: resolvedEntryFee,
+        prizePool: resolvedPrizePool,
+        matchDateTime: row.match_date_time || row.matchDateTime || tourn?.match_time || tourn?.match_date,
+        matchStatus: resolvedStatus,
+        submittedByStaffId: row.submitted_by || row.submitted_by_staff_id || row.submittedByStaffId || 'Staff',
+        submittedByStaffName: resolvedStaffName,
+        submittedByStaffEmail: resolvedStaffEmail,
+        submittedAt: row.created_at || row.submitted_at || new Date().toISOString(),
+        status: (row.status || 'PENDING').toUpperCase() as ResultRequestStatus,
+        participantCount: Number(row.participant_count ?? row.participantCount ?? enrichedParticipants.length),
+        participantResults: enrichedParticipants,
+        resultSummary: typeof row.result_summary === 'object' && row.result_summary ? row.result_summary : {},
+        evidenceUrls: Array.isArray(row.evidence_urls) ? row.evidence_urls : [],
+      proofNotes: row.proof_notes || row.staff_note || row.review_note,
+      rejectionReason: row.review_note || row.rejection_reason,
+      rejectedAt: row.reviewed_at,
+      rejectedBy: row.reviewed_by,
+      approvedAt: row.reviewed_at,
+      approvedBy: row.reviewed_by,
+      updatedAt: row.reviewed_at || row.created_at || new Date().toISOString()
+      };
+    });
+  }
+
+  // Sort descending by submittedAt (created_at)
+  const sortedRequests = requests.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+  console.log('[RESULT VERIFY] transformed/mapped data:', sortedRequests);
+  console.log('[RESULT VERIFY] final data passed to the UI:', sortedRequests);
+  return sortedRequests;
 }
 
 export async function submitResultRequestToSupabase(
@@ -5750,23 +6656,25 @@ export async function submitResultRequestToSupabase(
   const { matchId } = payload;
   if (!matchId) throw new Error('Match ID is required to submit a result request.');
 
-  // 1. Fetch current requests to enforce Duplicate Prevention Guard (Requirement #11)
+  // 1. Fetch current requests to enforce Duplicate Prevention Guard
   const existingRequests = await fetchResultRequestsFromSupabase();
-  const existingPending = existingRequests.find(r => r.matchId === matchId && r.status === 'PENDING');
+  const existingPending = existingRequests.find(r => (r.matchId === matchId || r.tournamentId === matchId) && r.status === 'PENDING');
   if (existingPending) {
     throw new Error(`A result verification request for this match (${payload.matchTitle || matchId}) is already PENDING Admin verification.`);
   }
 
-  // Check if tournament results are already published
+  // Check if tournament results are already published & fetch game info
   const { data: tourn } = await supabase
     .from('tournaments')
-    .select('status, results_published')
+    .select('status, results_published, game, game_category')
     .eq('id', matchId)
     .maybeSingle();
 
   if (tourn?.results_published || ['completed', 'finished'].includes(String(tourn?.status || '').toLowerCase())) {
     throw new Error('Results for this match are already officially published.');
   }
+
+  const determinedGame = (tourn?.game || tourn?.game_category || (payload.matchCategory?.toUpperCase().includes('BGMI') ? 'BGMI' : 'FREE FIRE')).toUpperCase().includes('BGMI') ? 'BGMI' : 'FREE FIRE';
 
   const now = new Date().toISOString();
   const requestId = `rr_${matchId}_${Date.now()}`;
@@ -5779,49 +6687,39 @@ export async function submitResultRequestToSupabase(
     updatedAt: now,
   };
 
-  // 2. Persist to dedicated table or app_config fallback
-  try {
-    const dbPayload = {
-      id: requestId,
-      match_id: matchId,
-      match_title: payload.matchTitle,
-      match_category: payload.matchCategory,
-      match_type: payload.matchType,
-      map: payload.map,
-      entry_fee: payload.entryFee || 0,
-      prize_pool: payload.prizePool || 0,
-      match_date_time: payload.matchDateTime,
-      match_status: payload.matchStatus || 'live',
-      submitted_by_staff_id: payload.submittedByStaffId,
-      submitted_by_staff_name: payload.submittedByStaffName,
-      submitted_by_staff_email: payload.submittedByStaffEmail,
-      submitted_at: now,
-      status: 'PENDING',
-      participant_count: payload.participantCount || payload.participantResults.length,
-      participant_results: payload.participantResults,
-      result_summary: payload.resultSummary,
-      evidence_urls: payload.evidenceUrls || [],
-      proof_notes: payload.proofNotes || '',
-      updated_at: now,
-    };
+  // 2. Persist to result_requests in Supabase (Do NOT pass updated_at column as it does not exist)
+  const dbPayload = {
+    id: requestId,
+    tournament_id: matchId,
+    match_id: matchId,
+    match_title: payload.matchTitle,
+    match_category: payload.matchCategory,
+    game: determinedGame,
+    game_category: determinedGame,
+    match_type: payload.matchType,
+    map: payload.map,
+    entry_fee: payload.entryFee || 0,
+    prize_pool: payload.prizePool || 0,
+    match_date_time: payload.matchDateTime,
+    match_status: payload.matchStatus || 'live',
+    submitted_by: payload.submittedByStaffId,
+    submitted_by_staff_id: payload.submittedByStaffId,
+    submitted_by_staff_name: payload.submittedByStaffName,
+    submitted_by_staff_email: payload.submittedByStaffEmail,
+    submitted_at: now,
+    status: 'PENDING',
+    participant_count: payload.participantCount || payload.participantResults.length,
+    submitted_results: payload.participantResults,
+    participant_results: payload.participantResults,
+    result_summary: payload.resultSummary,
+    evidence_urls: payload.evidenceUrls || [],
+    proof_notes: payload.proofNotes || ''
+  };
 
-    const { error: insertErr } = await supabase.from('result_requests').upsert(dbPayload);
-    if (insertErr) {
-      // Table doesn't exist, store in app_config
-      const updatedList = [newRequest, ...existingRequests.filter(r => r.id !== requestId)];
-      await supabase.from('app_config').upsert({
-        id: 'result_requests',
-        value: updatedList,
-        updated_at: now
-      });
-    }
-  } catch {
-    const updatedList = [newRequest, ...existingRequests.filter(r => r.id !== requestId)];
-    await supabase.from('app_config').upsert({
-      id: 'result_requests',
-      value: updatedList,
-      updated_at: now
-    });
+  const { error: insertErr } = await supabase.from('result_requests').upsert(dbPayload);
+  if (insertErr) {
+    console.error('[Supabase] submitResultRequestToSupabase error:', insertErr);
+    throw new Error(`Failed to submit result request: ${insertErr.message}`);
   }
 
   // 3. Update tournament state
@@ -5830,8 +6728,7 @@ export async function submitResultRequestToSupabase(
     .update({
       result_request_status: 'PENDING',
       result_submitted_at: now,
-      result_submitted_by: payload.submittedByStaffName,
-      updated_at: now,
+      result_submitted_by: payload.submittedByStaffName
     })
     .eq('id', matchId);
 
@@ -5854,7 +6751,7 @@ export async function approveAndPublishResultRequestInSupabase(
 ): Promise<{ success: boolean; message: string }> {
   await ensureSupabaseAuthSession();
 
-  // 1. Backend Security Check (Requirement #12)
+  // 1. Backend Security Check (Requirement #7 & #12)
   const { data: { user } } = await supabase.auth.getUser();
   let userRole = adminUser.role || '';
   if (user) {
@@ -5892,39 +6789,32 @@ export async function approveAndPublishResultRequestInSupabase(
     .filter(p => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.user_id));
 
   if (rpcResults.length === 0) {
-    throw new Error('No valid player user IDs found to credit winnings. Please verify player registrations.');
+    throw new Error('No valid registered player IDs found in submission. Please verify player accounts.');
   }
 
-  // 4. Publish results via authoritative Supabase RPC
-  await publishMatchResults(request.matchId, rpcResults);
+  // 4. Call authoritative review_result_request RPC
+  const adminNote = 'Approved and published by Admin';
+  const { data: revData, error: revErr } = await supabase.rpc('review_result_request', {
+    p_request_id: request.id,
+    p_approved: true,
+    p_review_note: adminNote
+  });
+  
+  console.log('[Supabase] review_result_request approve response:', { data: revData, error: revErr });
 
-  // 5. Update Result Request record in DB
-  try {
-    const { error: updateErr } = await supabase
-      .from('result_requests')
-      .update({
-        status: 'APPROVED',
-        approved_at: now,
-        approved_by: adminUser.displayName,
-        updated_at: now
-      })
-      .eq('id', requestId);
+  if (revErr) {
+    throw new Error(`Approval RPC failed: ${revErr.message}`);
+  }
 
-    if (updateErr) {
-      const updatedList = allRequests.map(r => r.id === requestId ? request : r);
-      await supabase.from('app_config').upsert({
-        id: 'result_requests',
-        value: updatedList,
-        updated_at: now
-      });
-    }
-  } catch {
-    const updatedList = allRequests.map(r => r.id === requestId ? request : r);
-    await supabase.from('app_config').upsert({
-      id: 'result_requests',
-      value: updatedList,
-      updated_at: now
-    });
+  // 5. Call authoritative publish_match_results RPC
+  const { data: pubData, error: pubErr } = await supabase.rpc('publish_match_results', {
+    p_request_id: request.id
+  });
+
+  console.log('[Supabase] publish_match_results response:', { data: pubData, error: pubErr });
+  
+  if (pubErr) {
+    console.warn(`[Supabase] Publish RPC failed: ${pubErr.message}`);
   }
 
   // 6. Update tournament metadata
@@ -5945,7 +6835,7 @@ export async function approveAndPublishResultRequestInSupabase(
     await channel.send({
       type: 'broadcast',
       event: 'RESULT_REQUEST_APPROVED',
-      payload: { matchId: request.matchId, requestId, status: 'APPROVED' }
+      payload: { matchId: request.matchId, requestId: request.id, status: 'APPROVED' }
     });
   } catch {}
 
@@ -5977,44 +6867,22 @@ export async function rejectResultRequestInSupabase(
   const request = allRequests.find(r => r.id === requestId || r.matchId === requestId);
   if (!request) throw new Error('Result request not found.');
 
-  const now = new Date().toISOString();
-  request.status = 'REJECTED';
-  request.rejectionReason = rejectionReason.trim();
-  request.rejectedAt = now;
-  request.rejectedBy = adminUser.displayName || adminUser.uid || 'Admin';
-  request.updatedAt = now;
+  // 2. Call review_result_request RPC
+  const rejectionNote = rejectionReason.trim();
+  const { data: revData, error: revErr } = await supabase.rpc('review_result_request', {
+    p_request_id: request.id,
+    p_approved: false,
+    p_review_note: rejectionNote
+  });
 
-  // 2. Update DB record
-  try {
-    const { error: updateErr } = await supabase
-      .from('result_requests')
-      .update({
-        status: 'REJECTED',
-        rejection_reason: rejectionReason.trim(),
-        rejected_at: now,
-        rejected_by: adminUser.displayName,
-        updated_at: now
-      })
-      .eq('id', requestId);
+  console.log('[Supabase] review_result_request rejection response:', { data: revData, error: revErr });
 
-    if (updateErr) {
-      const updatedList = allRequests.map(r => r.id === requestId ? request : r);
-      await supabase.from('app_config').upsert({
-        id: 'result_requests',
-        value: updatedList,
-        updated_at: now
-      });
-    }
-  } catch {
-    const updatedList = allRequests.map(r => r.id === requestId ? request : r);
-    await supabase.from('app_config').upsert({
-      id: 'result_requests',
-      value: updatedList,
-      updated_at: now
-    });
+  if (revErr) {
+    throw new Error(`Rejection RPC failed: ${revErr.message}`);
   }
 
   // 3. Update tournament metadata to allow Staff correction & resubmission
+  const now = new Date().toISOString();
   await supabase
     .from('tournaments')
     .update({
@@ -6030,7 +6898,7 @@ export async function rejectResultRequestInSupabase(
     await channel.send({
       type: 'broadcast',
       event: 'RESULT_REQUEST_REJECTED',
-      payload: { matchId: request.matchId, requestId, status: 'REJECTED', rejectionReason: rejectionReason.trim() }
+      payload: { matchId: request.matchId, requestId: request.id, status: 'REJECTED', rejectionReason: rejectionReason.trim() }
     });
   } catch {}
 
@@ -6431,5 +7299,526 @@ export function subscribeToConversation(
     } catch {}
   };
 }
+
+// ==========================================
+// WINX7 STAFF DAILY TASKS & PERFORMANCE TRACKER
+// ==========================================
+
+export async function fetchStaffDailyTasksFromSupabase(staffId: string): Promise<{
+  roomReleasesCount: number;
+  roomReleasesTarget: number;
+  matchesCreatedCount: number;
+  matchesCreatedTarget: number;
+  resultSubmissionsCount: number;
+  resultSubmissionsTarget: number;
+  date: string;
+}> {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const defaultTask = {
+    roomReleasesCount: 0,
+    roomReleasesTarget: 20,
+    matchesCreatedCount: 0,
+    matchesCreatedTarget: 20,
+    resultSubmissionsCount: 0,
+    resultSubmissionsTarget: 20,
+    date: todayStr
+  };
+
+  if (!staffId) return defaultTask;
+
+  try {
+    const { data, error } = await supabase
+      .from('staff_daily_tasks')
+      .select('*')
+      .eq('staff_id', staffId)
+      .eq('date', todayStr)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[fetchStaffDailyTasksFromSupabase] DB notice:', error.message);
+    }
+
+    if (data) {
+      return {
+        roomReleasesCount: Number(data.room_releases_count ?? data.roomReleasesCount ?? 0),
+        roomReleasesTarget: Number(data.room_releases_target ?? data.roomReleasesTarget ?? 20),
+        matchesCreatedCount: Number(data.matches_created_count ?? data.matchesCreatedCount ?? 0),
+        matchesCreatedTarget: Number(data.matches_created_target ?? data.matchesCreatedTarget ?? 20),
+        resultSubmissionsCount: Number(data.result_submissions_count ?? data.resultSubmissionsCount ?? 0),
+        resultSubmissionsTarget: Number(data.result_submissions_target ?? data.resultSubmissionsTarget ?? 20),
+        date: data.date || todayStr
+      };
+    } else {
+      const initialPayload = {
+        id: `${staffId}_${todayStr}`,
+        staff_id: staffId,
+        date: todayStr,
+        room_releases_count: 0,
+        room_releases_target: 20,
+        matches_created_count: 0,
+        matches_created_target: 20,
+        result_submissions_count: 0,
+        result_submissions_target: 20,
+        updated_at: new Date().toISOString()
+      };
+      try {
+        await supabase.from('staff_daily_tasks').upsert(initialPayload);
+      } catch {}
+      return defaultTask;
+    }
+  } catch (err) {
+    console.warn('[fetchStaffDailyTasksFromSupabase] Exception:', err);
+    try {
+      const saved = localStorage.getItem(`winx7_staff_tasks_${staffId}_${todayStr}`);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch {}
+    return defaultTask;
+  }
+}
+
+export async function fetchAllStaffDailyTasksFromSupabase(dateStr?: string, staffIds?: string[]): Promise<any[]> {
+  const targetDate = dateStr || new Date().toISOString().split('T')[0];
+  try {
+    const { data, error } = await supabase
+      .from('staff_daily_tasks')
+      .select('*')
+      .eq('date', targetDate);
+
+    if (error) {
+      console.warn('[fetchAllStaffDailyTasksFromSupabase] DB Error:', error);
+      return [];
+    }
+    
+    const tasks = data || [];
+    
+    // Ensure all requested staff IDs have a task record for today
+    if (staffIds && staffIds.length > 0) {
+      const missingStaffIds = staffIds.filter(id => !tasks.some(t => t.staff_id === id));
+      if (missingStaffIds.length > 0) {
+        const newRecords = missingStaffIds.map(staffId => ({
+          id: `${staffId}_${targetDate}`,
+          staff_id: staffId,
+          date: targetDate,
+          room_releases_target: 20,
+          matches_created_target: 20,
+          result_submissions_target: 20,
+          room_releases_count: 0,
+          matches_created_count: 0,
+          result_submissions_count: 0,
+          updated_at: new Date().toISOString()
+        }));
+        
+        // Use insert with ignore conflicts (supported implicitly by avoiding upsert conflicts if handled correctly, but Supabase standard client can use upsert safely if we only set defaults)
+        const { error: insertErr } = await supabase
+          .from('staff_daily_tasks')
+          .upsert(newRecords, { onConflict: 'id', ignoreDuplicates: true });
+          
+        if (!insertErr) {
+          // Add them to the local tasks array for immediate return
+          tasks.push(...newRecords);
+        } else {
+          console.warn('[fetchAllStaffDailyTasksFromSupabase] Failed to auto-create missing tasks:', insertErr);
+        }
+      }
+    }
+
+    return tasks;
+  } catch (err) {
+    console.warn('[fetchAllStaffDailyTasksFromSupabase] Exception:', err);
+    return [];
+  }
+}
+
+export async function updateStaffDailyTargetsInSupabase(
+  staffId: string, 
+  roomReleasesTarget: number, 
+  matchesCreatedTarget: number, 
+  resultSubmissionsTarget: number,
+  dateStr?: string
+): Promise<boolean> {
+  const targetDate = dateStr || new Date().toISOString().split('T')[0];
+  try {
+    const payload = {
+      id: `${staffId}_${targetDate}`,
+      staff_id: staffId,
+      date: targetDate,
+      room_releases_target: roomReleasesTarget,
+      matches_created_target: matchesCreatedTarget,
+      result_submissions_target: resultSubmissionsTarget,
+      updated_at: new Date().toISOString()
+    };
+    
+    // We can just try to upsert. Because we only specify targets, if it exists, it might overwrite counts to default 0 if we aren't careful.
+    // However, Supabase upsert updates whole row unless we do something else. 
+    // It's safer to read existing row first, then update or insert.
+    const { data: existing, error: fetchErr } = await supabase
+      .from('staff_daily_tasks')
+      .select('*')
+      .eq('staff_id', staffId)
+      .eq('date', targetDate)
+      .maybeSingle();
+
+    if (existing) {
+      const { error: updateErr } = await supabase
+        .from('staff_daily_tasks')
+        .update({
+          room_releases_target: roomReleasesTarget,
+          matches_created_target: matchesCreatedTarget,
+          result_submissions_target: resultSubmissionsTarget,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id);
+      
+      if (updateErr) throw updateErr;
+      return true;
+    } else {
+      const { error: insertErr } = await supabase
+        .from('staff_daily_tasks')
+        .insert([{
+          id: `${staffId}_${targetDate}`,
+          staff_id: staffId,
+          date: targetDate,
+          room_releases_target: roomReleasesTarget,
+          matches_created_target: matchesCreatedTarget,
+          result_submissions_target: resultSubmissionsTarget,
+          room_releases_count: 0,
+          matches_created_count: 0,
+          result_submissions_count: 0,
+          updated_at: new Date().toISOString()
+        }]);
+      
+      if (insertErr) throw insertErr;
+      return true;
+    }
+  } catch (err) {
+    console.error('[updateStaffDailyTargetsInSupabase] Exception:', err);
+    return false;
+  }
+}
+
+export async function incrementStaffDailyTaskCount(
+  staffId: string,
+  taskType: 'room_release' | 'match_create' | 'result_submission'
+): Promise<void> {
+  if (!staffId) return;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const current = await fetchStaffDailyTasksFromSupabase(staffId);
+
+  let updated = { ...current };
+  if (taskType === 'room_release') {
+    updated.roomReleasesCount += 1;
+  } else if (taskType === 'match_create') {
+    updated.matchesCreatedCount += 1;
+  } else if (taskType === 'result_submission') {
+    updated.resultSubmissionsCount += 1;
+  }
+
+  try {
+    const payload = {
+      id: `${staffId}_${todayStr}`,
+      staff_id: staffId,
+      date: todayStr,
+      room_releases_count: updated.roomReleasesCount,
+      room_releases_target: updated.roomReleasesTarget,
+      matches_created_count: updated.matchesCreatedCount,
+      matches_created_target: updated.matchesCreatedTarget,
+      result_submissions_count: updated.resultSubmissionsCount,
+      result_submissions_target: updated.resultSubmissionsTarget,
+      updated_at: new Date().toISOString()
+    };
+    await supabase.from('staff_daily_tasks').upsert(payload);
+  } catch (err) {
+    console.warn('[incrementStaffDailyTaskCount] Supabase update notice:', err);
+  }
+
+  try {
+    localStorage.setItem(`winx7_staff_tasks_${staffId}_${todayStr}`, JSON.stringify(updated));
+  } catch {}
+}
+
+export async function updateStaffDailyTaskTargetsInSupabase(
+  staffId: string,
+  targets: { roomReleasesTarget?: number; matchesCreatedTarget?: number; resultSubmissionsTarget?: number }
+): Promise<void> {
+  if (!staffId) return;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const current = await fetchStaffDailyTasksFromSupabase(staffId);
+
+  const updated = {
+    roomReleasesTarget: targets.roomReleasesTarget ?? current.roomReleasesTarget,
+    matchesCreatedTarget: targets.matchesCreatedTarget ?? current.matchesCreatedTarget,
+    resultSubmissionsTarget: targets.resultSubmissionsTarget ?? current.resultSubmissionsTarget,
+    roomReleasesCount: current.roomReleasesCount,
+    matchesCreatedCount: current.matchesCreatedCount,
+    resultSubmissionsCount: current.resultSubmissionsCount
+  };
+
+  try {
+    const payload = {
+      id: `${staffId}_${todayStr}`,
+      staff_id: staffId,
+      date: todayStr,
+      room_releases_count: updated.roomReleasesCount,
+      room_releases_target: updated.roomReleasesTarget,
+      matches_created_count: updated.matchesCreatedCount,
+      matches_created_target: updated.matchesCreatedTarget,
+      result_submissions_count: updated.resultSubmissionsCount,
+      result_submissions_target: updated.resultSubmissionsTarget,
+      updated_at: new Date().toISOString()
+    };
+    await supabase.from('staff_daily_tasks').upsert(payload);
+  } catch (err) {
+    console.warn('[updateStaffDailyTaskTargetsInSupabase] Error:', err);
+  }
+
+  try {
+    localStorage.setItem(`winx7_staff_tasks_${staffId}_${todayStr}`, JSON.stringify({
+      ...current,
+      ...updated
+    }));
+  } catch {}
+}
+
+export interface StaffTaskLog {
+  id: string;
+  staff_id: string;
+  staff_name?: string;
+  action_type: 'match_creation' | 'room_release' | 'result_submission' | string;
+  match_id: string;
+  created_at: string;
+}
+
+export async function resolveCanonicalStaffId(): Promise<{ canonicalStaffId: string; staffName: string; userUuid: string }> {
+  try {
+    await ensureSupabaseAuthSession();
+    const sessionRes = await supabase.auth.getSession();
+    const currentUser = sessionRes.data?.session?.user;
+    if (!currentUser) {
+      return { canonicalStaffId: 'WX7-STF-00001', staffName: 'Staff Member', userUuid: '' };
+    }
+
+    const userUuid = currentUser.id;
+    const userEmail = currentUser.email || '';
+    const fallbackName = currentUser.user_metadata?.full_name || 
+                        currentUser.user_metadata?.displayName || 
+                        (userEmail ? userEmail.split('@')[0] : 'Staff Member');
+
+    // Query staff_members table to get canonical staff_id (WX7-STF-XXXXX)
+    const { data: staffRows, error: staffErr } = await supabase
+      .from('staff_members')
+      .select('staff_id, staff_code, id, user_id, email, name, display_name')
+      .or(`user_id.eq.${userUuid},email.eq.${userEmail}`)
+      .limit(1);
+
+    if (!staffErr && Array.isArray(staffRows) && staffRows.length > 0) {
+      const row = staffRows[0];
+      const canonicalStaffId = row.staff_id || row.staff_code || row.id || 'WX7-STF-00001';
+      const staffName = row.name || row.display_name || fallbackName;
+      return { canonicalStaffId, staffName, userUuid };
+    }
+
+    const metaStaffId = currentUser.user_metadata?.staff_id || currentUser.user_metadata?.staffId;
+    if (metaStaffId) {
+      return { canonicalStaffId: metaStaffId, staffName: fallbackName, userUuid };
+    }
+
+    return { canonicalStaffId: 'WX7-STF-00001', staffName: fallbackName, userUuid };
+  } catch (ex) {
+    console.error('[resolveCanonicalStaffId Exception]:', ex);
+    return { canonicalStaffId: 'WX7-STF-00001', staffName: 'Staff Member', userUuid: '' };
+  }
+}
+
+export async function logAndIncrementStaffTaskInSupabase(
+  actionType: 'match_creation' | 'room_release' | 'result_submission',
+  matchId: string
+): Promise<boolean> {
+  if (!matchId || !matchId.trim()) {
+    console.warn('[logAndIncrementStaffTaskInSupabase] Skipped: matchId is empty');
+    return false;
+  }
+
+  const rawMatchId = matchId.trim();
+  const normalizedMatchId = normalizePublicMatchId(rawMatchId) || rawMatchId;
+
+  try {
+    const { canonicalStaffId, staffName, userUuid } = await resolveCanonicalStaffId();
+
+    // 1. Primary: Call RPC log_and_increment_staff_task(p_action_type, p_match_id)
+    let rpcSuccess = false;
+    let rpcResponseData: any = null;
+    try {
+      // Standard signature: log_and_increment_staff_task(p_action_type, p_match_id)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('log_and_increment_staff_task', {
+        p_action_type: actionType,
+        p_match_id: normalizedMatchId
+      });
+
+      console.log('[log_and_increment_staff_task RPC Primary Execution]:', {
+        actionType,
+        matchId: normalizedMatchId,
+        userUuid,
+        canonicalStaffId,
+        data: rpcData,
+        error: rpcError?.message || null,
+        code: rpcError?.code || null
+      });
+
+      if (!rpcError) {
+        rpcSuccess = true;
+        rpcResponseData = rpcData;
+      } else {
+        // Fallback signature test: log_and_increment_staff_task(p_action_type, p_match_id, p_staff_id)
+        const { data: altData, error: altRpcError } = await supabase.rpc('log_and_increment_staff_task', {
+          p_action_type: actionType,
+          p_match_id: normalizedMatchId,
+          p_staff_id: canonicalStaffId
+        });
+
+        console.log('[log_and_increment_staff_task RPC Secondary Execution]:', {
+          data: altData,
+          error: altRpcError?.message || null
+        });
+
+        if (!altRpcError) {
+          rpcSuccess = true;
+          rpcResponseData = altData;
+        }
+      }
+    } catch (rpcEx) {
+      console.warn('[logAndIncrementStaffTaskInSupabase] RPC Exception:', rpcEx);
+    }
+
+    // 2. ALWAYS insert record into public.staff_action_logs
+    try {
+      const actionPayload = {
+        staff_id: canonicalStaffId,
+        action_type: actionType,
+        match_id: normalizedMatchId,
+        created_at: new Date().toISOString()
+      };
+
+      const { data: insData, error: insErr } = await supabase
+        .from('staff_action_logs')
+        .insert([actionPayload])
+        .select();
+
+      console.log('[public.staff_action_logs Direct Insert Result]:', {
+        actionType,
+        matchId: normalizedMatchId,
+        canonicalStaffId,
+        insertedCount: insData?.length || 0,
+        error: insErr?.message || null,
+        code: insErr?.code || null,
+        details: insErr?.details || null
+      });
+    } catch (tblErr) {
+      console.error('[public.staff_action_logs Direct Insert Exception]:', tblErr);
+    }
+
+    // 3. Fallback counter increment on staff_daily_tasks if RPC failed
+    if (!rpcSuccess && canonicalStaffId) {
+      const mapTaskType: Record<string, 'room_release' | 'match_create' | 'result_submission'> = {
+        'match_creation': 'match_create',
+        'room_release': 'room_release',
+        'result_submission': 'result_submission'
+      };
+      if (mapTaskType[actionType]) {
+        await incrementStaffDailyTaskCount(canonicalStaffId, mapTaskType[actionType]);
+      }
+    }
+
+    // Dispatch event for real-time UI refresh
+    try {
+      window.dispatchEvent(new CustomEvent('winx7_staff_action_logged', {
+        detail: { canonicalStaffId, actionType, matchId: normalizedMatchId }
+      }));
+    } catch {}
+
+    return true;
+  } catch (err) {
+    console.error('[logAndIncrementStaffTaskInSupabase] Unexpected error:', err);
+    return false;
+  }
+}
+
+export async function fetchStaffTaskLogsFromSupabase(): Promise<StaffTaskLog[]> {
+  try {
+    await ensureSupabaseAuthSession();
+
+    // 1. Query public.staff_action_logs exclusively
+    const { data: actionLogs, error: actionErr } = await supabase
+      .from('staff_action_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (actionErr) {
+      console.error('[public.staff_action_logs Query Error]:', actionErr);
+      return [];
+    }
+
+    if (!Array.isArray(actionLogs) || actionLogs.length === 0) {
+      return [];
+    }
+
+    // 2. Fetch staff_members and tournaments to join staff_name and tournament_title
+    const [{ data: staffMembers }, { data: tournaments }] = await Promise.all([
+      supabase.from('staff_members').select('*'),
+      supabase.from('tournaments').select('*')
+    ]);
+
+    const staffMap = new Map<string, string>();
+    if (Array.isArray(staffMembers)) {
+      staffMembers.forEach((s: any) => {
+        const name = s.name || s.displayName || s.email || 'Staff Member';
+        if (s.staff_id) staffMap.set(String(s.staff_id).toLowerCase(), name);
+        if (s.staffId) staffMap.set(String(s.staffId).toLowerCase(), name);
+        if (s.staff_code) staffMap.set(String(s.staff_code).toLowerCase(), name);
+        if (s.user_id) staffMap.set(String(s.user_id).toLowerCase(), name);
+        if (s.userId) staffMap.set(String(s.userId).toLowerCase(), name);
+        if (s.id) staffMap.set(String(s.id).toLowerCase(), name);
+        if (s.email) staffMap.set(String(s.email).toLowerCase(), name);
+      });
+    }
+
+    const tournMap = new Map<string, { title: string; game: string }>();
+    if (Array.isArray(tournaments)) {
+      tournaments.forEach((t: any) => {
+        const matchId = t.match_id || t.matchId || t.id;
+        if (matchId) {
+          tournMap.set(String(matchId).trim().toUpperCase(), {
+            title: t.title || 'Tournament Match',
+            game: t.game || t.game_category || 'Free Fire'
+          });
+        }
+      });
+    }
+
+    return actionLogs.map((row: any) => {
+      const sKey = String(row.staff_id || '').toLowerCase().trim();
+      const resolvedStaffName = row.staff_name || staffMap.get(sKey) || 'Staff Member';
+      const mKey = String(row.match_id || '').trim().toUpperCase();
+      const tourInfo = tournMap.get(mKey);
+
+      return {
+        id: String(row.id || `${row.staff_id}_${row.action_type}_${row.match_id}_${row.created_at}`),
+        staff_id: String(row.staff_id || ''),
+        staff_name: resolvedStaffName,
+        action_type: row.action_type || 'task',
+        match_id: row.match_id || '',
+        created_at: row.created_at || row.timestamp || new Date().toISOString(),
+        tournament_title: tourInfo?.title,
+        game: tourInfo?.game
+      };
+    });
+  } catch (err) {
+    console.error('[fetchStaffTaskLogsFromSupabase Exception]:', err);
+    return [];
+  }
+}
+
+
 
 

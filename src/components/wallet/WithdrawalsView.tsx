@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { WalletTransaction, AppUser } from '../../types';
-import { resolveUserDisplayName } from '../../services/supabaseService';
-import { ArrowUpRight, CheckCircle2, XCircle, Search, AlertCircle, Copy, Check, RotateCcw } from 'lucide-react';
+import { resolveTransactionUser } from '../../services/supabaseService';
+import { ArrowUpRight, CheckCircle2, XCircle, Search, AlertCircle, Copy, Check, RotateCcw, Mail, Phone } from 'lucide-react';
 
 interface WithdrawalsViewProps {
   transactions: WalletTransaction[];
@@ -31,11 +31,11 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
     if (!tx) return false;
     const matchesFilter = filter === 'all' ? true : tx.status === filter;
     const q = (search || '').toLowerCase();
-    const resolved = resolveUserDisplayName(tx, users);
+    const resolved = resolveTransactionUser(tx, users);
     const matchesSearch =
       (resolved.username || '').toLowerCase().includes(q) ||
-      (resolved.inGameName || '').toLowerCase().includes(q) ||
       (resolved.email || '').toLowerCase().includes(q) ||
+      (resolved.phone || '').toLowerCase().includes(q) ||
       (tx.username || '').toLowerCase().includes(q) ||
       (tx.upiId ? tx.upiId.toLowerCase().includes(q) : false) ||
       (tx.withdrawalRequestId ? tx.withdrawalRequestId.toLowerCase().includes(q) : false) ||
@@ -132,7 +132,7 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
           </div>
         ) : (
           filtered.map((tx) => {
-            const userDisplay = resolveUserDisplayName(tx, users);
+            const txUser = resolveTransactionUser(tx, users);
             return (
             <div
               key={tx.id}
@@ -146,12 +146,15 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-extrabold text-sm text-white">
-                      {userDisplay.username}
-                      {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
-                        <span className="text-xs text-[#B0ACB0] font-normal ml-1">({userDisplay.inGameName})</span>
-                      ) : null}
+                      {txUser.username}
                     </h3>
-                    <span className="text-[10px] text-[#777278] font-mono">User ID: {userDisplay.userId !== 'N/A' ? userDisplay.userId : tx.userId}</span>
+                    {txUser.email !== 'N/A' && (
+                      <span className="text-xs text-amber-200/90 font-medium flex items-center gap-1 bg-[#1B181C] px-2 py-0.5 rounded-lg border border-[#29252A]">
+                        <Mail className="w-3 h-3 text-[#C9A34E]" />
+                        {txUser.email}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-[#777278] font-mono">UID: {txUser.userId !== 'N/A' ? txUser.userId : tx.userId}</span>
                     <span
                       className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
                         tx.status === 'pending'

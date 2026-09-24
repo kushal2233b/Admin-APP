@@ -82,25 +82,44 @@ DECLARE
   v_ign TEXT;
   v_avatar TEXT;
   
+  v_caller_role TEXT;
+  v_caller_assigned_game TEXT;
+  v_match_game TEXT;
+  v_match_game_cat TEXT;
+
   v_is_reconciliation BOOLEAN := FALSE;
   v_unprocessed_count INTEGER := 0;
 BEGIN
   -- 1. Authorization check
-  IF NOT EXISTS (
-    SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() AND LOWER(role) IN ('superadmin', 'admin', 'staff')
-  ) THEN
-    RAISE EXCEPTION 'Unauthorized: Only administrators can publish results.';
+  SELECT LOWER(COALESCE(role, '')), assigned_game 
+  INTO v_caller_role, v_caller_assigned_game
+  FROM public.profiles 
+  WHERE id = auth.uid();
+
+  IF v_caller_role IS NULL OR v_caller_role NOT IN ('superadmin', 'admin', 'staff') THEN
+    RAISE EXCEPTION 'Unauthorized: Only administrators and authorized staff can publish results.';
   END IF;
 
-  -- 2. Verify tournament existence and status
-  SELECT status, COALESCE(results_published, FALSE)
-  INTO v_match_status, v_is_published
+  -- 2. Verify tournament existence, status, and game
+  SELECT status, COALESCE(results_published, FALSE), game, game_category
+  INTO v_match_status, v_is_published, v_match_game, v_match_game_cat
   FROM public.tournaments
   WHERE id = p_match_id;
 
   IF v_match_status IS NULL THEN
     RAISE EXCEPTION 'Tournament with ID % not found.', p_match_id USING ERRCODE = 'P0002';
+  END IF;
+
+  -- 2.1 Enforce game isolation for staff
+  IF v_caller_role = 'staff' THEN
+    IF v_caller_assigned_game IS NULL OR TRIM(v_caller_assigned_game) = '' OR LOWER(v_caller_assigned_game) = 'not assigned' THEN
+      RAISE EXCEPTION 'Forbidden: You have no assigned game. Contact an administrator for game assignment.';
+    END IF;
+
+    IF (v_caller_assigned_game ILIKE '%free%fire%' AND COALESCE(v_match_game, v_match_game_cat) ILIKE '%bgmi%') OR
+       (v_caller_assigned_game ILIKE '%bgmi%' AND (COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%bgmi%' AND COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%battleground%' AND COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%pubg%')) THEN
+      RAISE EXCEPTION 'Forbidden: You are assigned to % and cannot publish results for % matches.', v_caller_assigned_game, COALESCE(v_match_game, 'this game');
+    END IF;
   END IF;
 
   -- -----------------------------------------------------------------------

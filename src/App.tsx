@@ -19,6 +19,7 @@ import { CouponManagement } from './components/coupons/CouponManagement';
 
 import { ReportsAnalytics } from './components/reports/ReportsAnalytics';
 import { StaffManagement } from './components/staff/StaffManagement';
+import { StaffDailyTaskManagement } from './components/staff/StaffDailyTaskManagement';
 import { SystemSettings } from './components/settings/SystemSettings';
 import { SupportManagement } from './components/support/SupportManagement';
 import { SavedImagesManagement } from './components/images/SavedImagesManagement';
@@ -38,6 +39,8 @@ import {
   fetchTransactionsFromSupabase,
   seedInitialFirestoreDataIfEmpty,
   createTournamentInFirestore,
+  normalizePublicMatchId,
+  isMatchLiveBySchedule,
   updateTournamentInFirestore,
   deleteTournamentFromFirestore,
   normalizeTournamentDoc,
@@ -70,6 +73,8 @@ import {
   provisionStaffAccountInFirebase,
   updateAdminUserStatusInFirestore,
   deleteAdminUserFromFirestore,
+  incrementStaffDailyTaskCount,
+  logAndIncrementStaffTaskInSupabase,
   bootstrapSuperAdminAccount,
   purgeDemoFirestoreData,
   getUserWallet,
@@ -81,6 +86,7 @@ import {
   sendWithdrawalNotification,
   sendMatchResultNotification
 } from './services/notificationSenderService';
+import { subscribeServerTimeTick } from './services/serverTimeSync';
 
 // Mock Data Initializers
 import {
@@ -110,7 +116,8 @@ import {
   UserStatus,
   Participant,
   MatchRulesPreset,
-  SavedImage
+  SavedImage,
+  MatchStatus
 } from './types';
 
 function MainPortalContent() {
@@ -212,6 +219,9 @@ function MainPortalContent() {
       evidenceUrls,
       proofNotes
     });
+
+    const targetMatchId = targetMatch.matchId || targetMatch.match_id || matchId;
+    await logAndIncrementStaffTaskInSupabase('result_submission', targetMatchId).catch(() => {});
 
     const fresh = await fetchResultRequestsFromSupabase();
     setResultRequests(fresh);
@@ -747,7 +757,15 @@ function MainPortalContent() {
             const existingScore = (existing.email ? 1 : 0) + (existing.phone ? 1 : 0) + (existing.inGameId ? 1 : 0) + (existing.inGameName ? 1 : 0);
             const newScore = (sanitized.email ? 1 : 0) + (sanitized.phone ? 1 : 0) + (sanitized.inGameId ? 1 : 0) + (sanitized.inGameName ? 1 : 0);
             if (newScore >= existingScore) {
-              userMap.set(key, { ...existing, ...sanitized });
+              const merged = { ...existing, ...sanitized };
+              if (existing.is_suspended || existing.isSuspended || existing.status === 'suspended') {
+                merged.is_suspended = true;
+                merged.isSuspended = true;
+                merged.status = 'suspended';
+                merged.banReason = existing.banReason || merged.banReason;
+                merged.ban_reason = existing.ban_reason || merged.ban_reason;
+              }
+              userMap.set(key, merged);
             }
           }
         }
@@ -839,6 +857,38 @@ function MainPortalContent() {
     };
   }, []);
 
+  // Continuous real-time listener for dynamic match status transition to LIVE (at 30s after scheduled start time)
+  useEffect(() => {
+    const checkAndTransitionLiveMatches = (syncedNow: number) => {
+      setTournaments(prevTournaments => {
+        let hasChanges = false;
+        const updated = prevTournaments.map(t => {
+          const statusLower = (t.status || '').toLowerCase();
+          const isFinished = statusLower === 'completed' || statusLower === 'finished' || Boolean((t as any).results_published || t.completedAt || (t as any).completed_at);
+          const isCancelled = statusLower === 'cancelled';
+
+          if (!isFinished && !isCancelled && statusLower === 'upcoming') {
+            const rawTime = t.startTime || t.matchTime || (t as any).start_time || (t as any).match_time;
+            if (isMatchLiveBySchedule(rawTime, t.matchDate, (t as any).time, syncedNow)) {
+              hasChanges = true;
+              // Trigger background update to Supabase to synchronize database state
+              updateTournamentInFirestore(t.id, { status: 'live' }).catch(err => {
+                console.debug('[Auto Status Sync] Background Supabase update:', err);
+              });
+              return { ...t, status: 'live' as MatchStatus };
+            }
+          }
+          return t;
+        });
+
+        return hasChanges ? updated : prevTournaments;
+      });
+    };
+
+    const unsubTick = subscribeServerTimeTick(checkAndTransitionLiveMatches);
+    return () => unsubTick();
+  }, []);
+
   // Confirmation Overlay & Refresh System state
   const [actionModal, setActionModal] = useState<ActionModalState>({
     isOpen: false,
@@ -851,7 +901,7 @@ function MainPortalContent() {
   const showConfirmationOverlay = (
     title: string,
     message: string,
-    details?: { label: string; value: string | number }[],
+    details?: { label: string; value: string | number; copyable?: boolean }[],
     badgeTag = 'ACTION CONFIRMED',
     icon: 'success' | 'warning' | 'danger' | 'info' | 'refresh' = 'success'
   ) => {
@@ -909,26 +959,40 @@ function MainPortalContent() {
 
   // User Handlers
   const handleUpdateUserStatus = async (userId: string, newStatus: UserStatus, reason?: string) => {
+    const isSuspended = ['suspended', 'blocked', 'banned'].includes(String(newStatus).toLowerCase());
+    const finalReason = reason || (isSuspended ? 'Account suspended by administrator' : '');
+
     await runAsyncAction(`Updating user account status to ${newStatus}...`, async () => {
       setUsers((prev) =>
         prev.map((u) =>
-          u.id === userId ? { ...u, status: newStatus, banReason: reason || u.banReason } : u
+          u.id === userId
+            ? {
+                ...u,
+                status: isSuspended ? 'suspended' : 'active',
+                is_suspended: isSuspended,
+                isSuspended,
+                is_banned: newStatus === 'banned',
+                is_blocked: newStatus === 'blocked' ? true : (isSuspended ? u.is_blocked : false),
+                banReason: isSuspended ? finalReason : '',
+                ban_reason: isSuspended ? finalReason : '',
+              }
+            : u
         )
       );
-      await updateUserStatusInFirestore(userId, newStatus, reason);
+      await updateUserStatusInFirestore(userId, newStatus, finalReason);
       const u = users.find((x) => x.id === userId);
-      pushAudit(`Updated User Status (${newStatus})`, `${u?.username || userId} ${reason ? `- ${reason}` : ''}`);
+      pushAudit(`Updated User Status (${newStatus})`, `${u?.username || userId} ${finalReason ? `- ${finalReason}` : ''}`);
 
       showConfirmationOverlay(
-        `User Account ${newStatus === 'active' ? 'Re-activated' : 'Suspended'}!`,
-        `Player account for ${u?.username || userId} has been set to ${(newStatus || '').toUpperCase()}.`,
+        `User Account ${!isSuspended ? 'Re-activated' : 'Suspended'}!`,
+        `Player account for ${u?.username || userId} has been set to ${isSuspended ? 'SUSPENDED' : 'ACTIVE'}.`,
         [
           { label: 'Player Username', value: u?.username || userId },
-          { label: 'New Status', value: (newStatus || '').toUpperCase() },
-          ...(reason ? [{ label: 'Ban/Suspension Reason', value: reason }] : [])
+          { label: 'New Status', value: isSuspended ? 'SUSPENDED' : 'ACTIVE' },
+          ...(finalReason ? [{ label: 'Suspension Reason', value: finalReason }] : [])
         ],
         'USER STATUS UPDATED',
-        newStatus === 'active' ? 'success' : 'warning'
+        !isSuspended ? 'success' : 'warning'
       );
     });
   };
@@ -1005,6 +1069,10 @@ function MainPortalContent() {
                 email: profileData.email,
                 phone: profileData.phone,
                 inGameName: profileData.inGameName,
+                ffIgn: (profileData as any).ffIgn !== undefined ? (profileData as any).ffIgn : u.ffIgn,
+                ffUid: (profileData as any).ffUid !== undefined ? (profileData as any).ffUid : u.ffUid,
+                bgmiIgn: (profileData as any).bgmiIgn !== undefined ? (profileData as any).bgmiIgn : u.bgmiIgn,
+                bgmiUid: (profileData as any).bgmiUid !== undefined ? (profileData as any).bgmiUid : u.bgmiUid,
                 avatar_id: avatarId,
                 avatarId: avatarId,
                 avatarUrl: resolvedAvatarUrl,
@@ -1059,32 +1127,103 @@ function MainPortalContent() {
 
   // Tournament Handlers
   const handleCreateTournament = async (data: Omit<Tournament, 'id' | 'createdAt' | 'filledSlots' | 'participants'>) => {
-    await runAsyncAction(`Creating & publishing tournament "${data.title}"...`, async () => {
-      const tourId = crypto.randomUUID();
-      const newTour: Tournament = {
-        ...data,
-        id: tourId,
-        filledSlots: 0,
-        participants: [],
-        createdAt: new Date().toISOString()
-      };
-      setTournaments((prev) => [newTour, ...prev]);
-      await createTournamentInFirestore(newTour, categories);
-      pushAudit('Created Tournament', `${data.title} (${data.game})`);
+    const tourId = crypto.randomUUID();
+    const rawPassedMatchId = normalizePublicMatchId((data as any).matchId || (data as any).match_id);
+    const newTour: Tournament = {
+      ...data,
+      id: tourId,
+      matchId: rawPassedMatchId || undefined,
+      match_id: rawPassedMatchId || undefined,
+      filledSlots: 0,
+      participants: [],
+      createdAt: new Date().toISOString()
+    };
 
+    try {
+      await runAsyncAction(`Creating & publishing tournament "${data.title}"...`, async () => {
+        // Step 1: Write to Supabase database (throws if failed)
+        await createTournamentInFirestore(newTour, categories);
+
+        // Step 2: Read back row from Supabase database to verify existence and match_id
+        const { data: createdRow, error: readBackErr } = await supabase
+          .from('tournaments')
+          .select('*')
+          .eq('id', tourId)
+          .single();
+
+        if (readBackErr || !createdRow) {
+          console.error('[Create Tournament Verification Failed]', { tourId, readBackErr });
+          throw new Error(`Tournament was saved, but read-back verification from database failed: ${readBackErr?.message || 'Row not found in database.'}`);
+        }
+
+        if (!createdRow.match_id) {
+          console.error('[Create Tournament Missing Match ID]', { tourId, createdRow });
+          throw new Error('Tournament was saved, but no sequential Match ID was assigned by the database.');
+        }
+
+        // Step 3: Only after verified in database, update local React state
+        const normalized = normalizeTournamentDoc(createdRow, tourId);
+        const finalMatchId = normalized.matchId || normalized.match_id || createdRow.match_id || '';
+        
+        setTournaments((prev) => [normalized, ...prev.filter(t => t.id !== tourId)]);
+
+        await logAndIncrementStaffTaskInSupabase('match_creation', finalMatchId || tourId).catch(() => {});
+
+        pushAudit('Created Tournament', `${data.title} (${data.game}) [${finalMatchId}]`);
+
+        // Step 4: Only show success confirmation after database verification
+        showConfirmationOverlay(
+          'Tournament Created & Published!',
+          `"${data.title}" for ${data.game} has been saved and published live on the WinX7 User App.`,
+          [
+            { label: 'Match ID', value: finalMatchId, copyable: true },
+            { label: 'Tournament Title', value: data.title },
+            { label: 'Game Category', value: data.game },
+            { label: 'Entry Fee', value: `₹${data.entryFee}` },
+            { label: 'Prize Pool', value: `₹${data.prizePool}` },
+            { 
+              label: 'Start Time', 
+              value: (() => {
+                try {
+                  const d = new Date(data.startTime);
+                  if (isNaN(d.getTime())) return data.startTime;
+                  const datePart = new Intl.DateTimeFormat('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric'
+                  }).format(d);
+                  const timePart = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Asia/Kolkata',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                  }).format(d);
+                  return `${datePart}, ${timePart} IST`;
+                } catch {
+                  return new Date(data.startTime).toLocaleString();
+                }
+              })()
+            }
+          ],
+          'TOURNAMENT CREATED'
+        );
+      });
+    } catch (err: any) {
+      console.error('[Create Tournament Handler Caught Error]:', err);
       showConfirmationOverlay(
-        'Tournament Created & Published!',
-        `"${data.title}" for ${data.game} has been saved and published live on the WinX7 User App.`,
+        'Match Creation Failed',
+        `The tournament could not be created in the database: ${err?.message || String(err)}. No ghost tournament was created.`,
         [
+          { label: 'Error Cause', value: err?.message || 'Database transaction error' },
           { label: 'Tournament Title', value: data.title },
-          { label: 'Game Category', value: data.game },
-          { label: 'Entry Fee', value: `₹${data.entryFee}` },
-          { label: 'Prize Pool', value: `₹${data.prizePool}` },
-          { label: 'Start Time', value: new Date(data.startTime).toLocaleString() }
+          { label: 'Game Category', value: data.game }
         ],
-        'TOURNAMENT CREATED'
+        'CREATION FAILED',
+        'danger'
       );
-    });
+      throw err;
+    }
   };
 
   const handleUpdateTournament = async (updated: Tournament) => {
@@ -1126,10 +1265,12 @@ function MainPortalContent() {
   const handleReleaseRoomCredentials = async (id: string, roomId: string, pass: string) => {
     await runAsyncAction('Releasing match room credentials...', async () => {
       let tTitle = '';
+      let targetMatchId = id;
       setTournaments((prev) =>
         prev.map((t) => {
           if (t.id === id) {
             tTitle = t.title;
+            targetMatchId = t.matchId || t.match_id || id;
             return { ...t, roomId, roomPassword: pass, isRoomReleased: true };
           }
           return t;
@@ -1137,6 +1278,7 @@ function MainPortalContent() {
       );
 
       await updateTournamentInFirestore(id, { roomId, roomPassword: pass, isRoomReleased: true });
+      await logAndIncrementStaffTaskInSupabase('room_release', targetMatchId).catch(() => {});
 
       pushAudit('Released Room Credentials', `Room ${roomId} for ${tTitle}`);
 
@@ -1277,11 +1419,14 @@ function MainPortalContent() {
           console.warn('[FCM Match Result Notification Trigger Notice]:', err);
         });
 
+        const targetTour = tournaments.find((t) => t.id === id);
+        const displayMatchId = normalizePublicMatchId(targetTour?.matchId || (targetTour as any)?.match_id) || targetTour?.matchId || id;
+
         showConfirmationOverlay(
           'Match Results Published Successfully!',
           `Leaderboard has been finalized and player winnings have been credited to their wallets.`,
           [
-            { label: 'Match ID', value: id },
+            { label: 'Match ID', value: displayMatchId, copyable: true },
             { label: 'Winners Processed', value: String(rpcResults.length) },
             { label: 'Status', value: 'COMPLETED' }
           ],
@@ -1748,6 +1893,10 @@ function MainPortalContent() {
         { label: 'Telegram Channel', value: updated.telegramChannel || 'Not configured' },
         { label: 'WhatsApp Group Link', value: updated.whatsappGroup || 'Not configured' },
         { label: 'Active Support Links', value: `${activeSupportLinksCount} custom link(s) active` },
+        { label: 'Latest App Version', value: `v${updated.latestAppVersion || updated.appVersion || '1.0.8'}` },
+        { label: 'Minimum Supported Version', value: `v${updated.minimumAppVersion || updated.minAppVersion || '1.0.7'}` },
+        { label: 'Remote Force Update', value: updated.isForceUpdate ? 'MANDATORY (LOCKED)' : 'OPTIONAL (PROMPT)' },
+        { label: 'Update APK/Store URL', value: updated.updateUrl || 'Not configured' },
         { label: 'Terms & Fair Play Rules', value: updated.termsAndFairPlayRulesText ? `${updated.termsAndFairPlayRulesText.length} characters (Synced)` : 'Default rules' },
         { label: 'Privacy Policy', value: (updated.privacyPolicyText || updated.privacyPolicy) ? `${(updated.privacyPolicyText || updated.privacyPolicy)?.length} characters (Synced)` : 'Default policy' },
         { label: 'Database Status', value: 'Connected & Synced to Supabase (id=general)' }
@@ -2001,6 +2150,7 @@ function MainPortalContent() {
               openCreateModalDirectly={openCreateMatchDirectly}
               savedImages={savedImages}
               onNavigateToSavedImages={() => setActiveTab('saved-images')}
+              onRefresh={handleManualRefresh}
             />
           )}
 
@@ -2116,6 +2266,10 @@ function MainPortalContent() {
             />
           )}
 
+          {activeTab === 'staff-tasks' && (
+            <StaffDailyTaskManagement />
+          )}
+
           {activeTab === 'support-management' && (
             <SupportManagement users={users} />
           )}
@@ -2166,7 +2320,6 @@ function MainPortalContent() {
         openMobileDrawer={() => setMobileDrawerOpen(true)}
         pendingCount={pendingCount}
       />
-
     </div>
   );
 }

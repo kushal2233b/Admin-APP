@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { WalletTransaction, TransactionType, TransactionStatus, AppUser } from '../../types';
-import { resolveUserDisplayName } from '../../services/supabaseService';
+import { resolveTransactionUser } from '../../services/supabaseService';
 import {
   Wallet,
   ArrowDownRight,
@@ -18,7 +18,12 @@ import {
   ShieldCheck,
   X,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Mail,
+  Phone,
+  Ticket,
+  Trophy,
+  TrendingUp
 } from 'lucide-react';
 
 interface WalletManagementProps {
@@ -40,7 +45,7 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
   onDeleteTransaction,
   onManualWalletAdjustment
 }) => {
-  const [activeTab, setActiveTab] = useState<'deposits' | 'withdrawals' | 'history' | 'manual'>('deposits');
+  const [activeTab, setActiveTab] = useState<'deposits' | 'withdrawals' | 'history' | 'coupons' | 'matches' | 'manual'>('deposits');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
 
@@ -68,11 +73,11 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
   const filteredList = safeTransactions.filter((t) => {
     if (!t) return false;
     const q = (searchQuery || '').toLowerCase();
-    const resolved = resolveUserDisplayName(t, users);
+    const resolved = resolveTransactionUser(t, users);
     const matchesSearch =
       (resolved.username || '').toLowerCase().includes(q) ||
-      (resolved.inGameName || '').toLowerCase().includes(q) ||
       (resolved.email || '').toLowerCase().includes(q) ||
+      (resolved.phone || '').toLowerCase().includes(q) ||
       (t.username || '').toLowerCase().includes(q) ||
       (t.referenceId || '').toLowerCase().includes(q) ||
       (t.upiId ? t.upiId.toLowerCase().includes(q) : false);
@@ -80,6 +85,9 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
     let matchesTab = true;
     if (activeTab === 'deposits') matchesTab = t.type === 'deposit';
     else if (activeTab === 'withdrawals') matchesTab = t.type === 'withdrawal';
+    else if (activeTab === 'coupons') matchesTab = (t.type as string) === 'coupon' || (t.type as string) === 'bonus' || (t.description && t.description.toLowerCase().includes('coupon'));
+    else if (activeTab === 'matches') matchesTab = (t.type as string) === 'fee' || (t.type as string) === 'entry_fee' || t.type === 'winning' || (t.description && (t.description.toLowerCase().includes('match') || t.description.toLowerCase().includes('fee') || t.description.toLowerCase().includes('tournament')));
+    else if (activeTab === 'history') matchesTab = true;
 
     let matchesStatus = true;
     if (activeTab === 'deposits' || activeTab === 'withdrawals') {
@@ -195,6 +203,36 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
         </button>
 
         <button
+          onClick={() => {
+            setActiveTab('coupons');
+            setStatusFilter('all');
+          }}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition whitespace-nowrap ${
+            activeTab === 'coupons'
+              ? 'bg-amber-400 text-black shadow-lg'
+              : 'text-[#B0ACB0] hover:text-white bg-[#0D0B0D]/40'
+          }`}
+        >
+          <Ticket className="w-4 h-4 text-emerald-400" />
+          <span>Coupons & Bonuses</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('matches');
+            setStatusFilter('all');
+          }}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition whitespace-nowrap ${
+            activeTab === 'matches'
+              ? 'bg-amber-400 text-black shadow-lg'
+              : 'text-[#B0ACB0] hover:text-white bg-[#0D0B0D]/40'
+          }`}
+        >
+          <Trophy className="w-4 h-4 text-[#C9A34E]" />
+          <span>Match Fees & Winnings</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('manual')}
           className={`flex-1 py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition whitespace-nowrap ${
             activeTab === 'manual'
@@ -250,7 +288,7 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
             </div>
           ) : (
             filteredList.map((tx) => {
-              const userDisplay = resolveUserDisplayName(tx, users);
+              const txUser = resolveTransactionUser(tx, users);
               return (
               <div
                 key={tx.id}
@@ -262,24 +300,36 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
                     className={`w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 font-bold ${
                       tx.type === 'deposit'
                         ? 'bg-[#350A12] text-[#C9A34E] border border-[#29252A]'
+                        : (tx.type as string) === 'coupon' || (tx.type as string) === 'bonus'
+                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                        : tx.type === 'winning'
+                        ? 'bg-amber-950 text-amber-400 border border-amber-800'
                         : 'bg-rose-950 text-rose-400 border border-rose-800'
                     }`}
                   >
                     {tx.type === 'deposit' ? (
                       <ArrowDownRight className="w-5 h-5" />
+                    ) : (tx.type as string) === 'coupon' || (tx.type as string) === 'bonus' ? (
+                      <Ticket className="w-5 h-5" />
+                    ) : tx.type === 'winning' ? (
+                      <Trophy className="w-5 h-5" />
                     ) : (
                       <ArrowUpRight className="w-5 h-5" />
                     )}
                   </div>
 
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-extrabold text-sm text-white">
-                        {userDisplay.username}
-                        {userDisplay.inGameName && userDisplay.inGameName !== 'N/A' && userDisplay.inGameName !== userDisplay.username ? (
-                          <span className="text-xs text-[#B0ACB0] font-normal ml-1">({userDisplay.inGameName})</span>
-                        ) : null}
+                        {txUser.username}
                       </h3>
+                      {txUser.email !== 'N/A' && (
+                        <span className="text-xs text-amber-200/90 font-medium flex items-center gap-1 bg-[#1B181C] px-2 py-0.5 rounded-lg border border-[#29252A]">
+                          <Mail className="w-3 h-3 text-[#C9A34E]" />
+                          {txUser.email}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-[#777278] font-mono">UID: {txUser.userId !== 'N/A' ? txUser.userId : tx.userId}</span>
                       <span
                         className={`px-2 py-0.5 text-[9px] font-black uppercase rounded-md border ${
                           tx.status === 'pending'
@@ -301,26 +351,17 @@ export const WalletManagement: React.FC<WalletManagementProps> = ({
                         <p className="text-[10px] text-[#B0ACB0]">
                           UPI ID: <span className={(tx.upiId || tx.userPhone) ? "text-amber-200 font-bold" : "text-[#777278] italic"}>{tx.upiId || 'Not Provided'}</span>
                         </p>
-                        <p className="text-[10px] text-[#B0ACB0]">
-                          Payout UTR: <span className={tx.status === 'approved' ? "text-[#C9A34E] font-mono font-bold" : "text-[#777278]"}>
-                            {tx.status === 'approved' ? (tx.utr || tx.adminNotes || 'N/A') : tx.status === 'pending' ? 'Not generated yet' : 'N/A (Rejected)'}
-                          </span>
-                        </p>
                       </>
                     ) : (
                       <>
-                        {tx.upiId ? (
-                          <p className="text-[11px] text-[#B0ACB0]/80 font-mono mt-0.5">
-                            Sender UPI: <span className="text-[#C9A34E] font-semibold">{tx.upiId}</span> • {tx.paymentMethod}
-                          </p>
-                        ) : (
-                          <p className="text-[11px] text-[#B0ACB0]/80 font-mono mt-0.5">
-                            Deposit Ref: <span className="text-[#C9A34E] font-semibold">{tx.referenceId}</span> • {tx.paymentMethod}
+                        {tx.description && (
+                          <p className="text-[11px] text-[#B0ACB0] mt-0.5 bg-[#1B181C] px-2 py-0.5 rounded border border-[#29252A]">
+                            {tx.description}
                           </p>
                         )}
                       </>
                     )}
-                    <p className="text-[10px] text-[#777278]/80">
+                    <p className="text-[10px] text-[#777278]/80 mt-1">
                       Submitted: {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : 'N/A'}
                     </p>
                   </div>

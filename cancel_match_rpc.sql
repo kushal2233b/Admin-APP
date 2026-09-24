@@ -23,20 +23,35 @@ DECLARE
   v_type_created_at_tx TEXT;
 BEGIN
   -- 1. Authorization check
-  IF NOT EXISTS (
-    SELECT 1 FROM public.profiles 
-    WHERE id = auth.uid() AND LOWER(role) IN ('superadmin', 'admin', 'staff')
-  ) THEN
-    RAISE EXCEPTION 'Unauthorized: Only administrators can cancel matches.';
+  SELECT LOWER(COALESCE(role, '')), assigned_game 
+  INTO v_caller_role, v_caller_assigned_game
+  FROM public.profiles 
+  WHERE id = auth.uid();
+
+  IF v_caller_role IS NULL OR v_caller_role NOT IN ('superadmin', 'admin', 'staff') THEN
+    RAISE EXCEPTION 'Unauthorized: Only administrators and authorized staff can cancel matches.';
   END IF;
 
   -- 2. Fetch match info
-  SELECT status, COALESCE(entry_fee, 0) INTO v_match_status, v_entry_fee 
+  SELECT status, COALESCE(entry_fee, 0), game, game_category 
+  INTO v_match_status, v_entry_fee, v_match_game, v_match_game_cat
   FROM public.tournaments 
   WHERE id = p_match_id;
 
   IF v_match_status IS NULL THEN
     RAISE EXCEPTION 'Match not found.';
+  END IF;
+
+  -- Enforce game isolation for staff
+  IF v_caller_role = 'staff' THEN
+    IF v_caller_assigned_game IS NULL OR TRIM(v_caller_assigned_game) = '' OR LOWER(v_caller_assigned_game) = 'not assigned' THEN
+      RAISE EXCEPTION 'Forbidden: You have no assigned game. Contact an administrator for game assignment.';
+    END IF;
+
+    IF (v_caller_assigned_game ILIKE '%free%fire%' AND COALESCE(v_match_game, v_match_game_cat) ILIKE '%bgmi%') OR
+       (v_caller_assigned_game ILIKE '%bgmi%' AND (COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%bgmi%' AND COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%battleground%' AND COALESCE(v_match_game, v_match_game_cat) NOT ILIKE '%pubg%')) THEN
+      RAISE EXCEPTION 'Forbidden: You are assigned to % and cannot cancel % matches.', v_caller_assigned_game, COALESCE(v_match_game, 'this game');
+    END IF;
   END IF;
 
   IF v_match_status IN ('COMPLETED', 'CANCELLED', 'FINISHED', 'completed', 'cancelled', 'finished') THEN

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -7,7 +7,9 @@ import {
   RefreshCw,
   Sparkles,
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Copy,
+  Check
 } from 'lucide-react';
 
 export interface ActionModalState {
@@ -15,7 +17,7 @@ export interface ActionModalState {
   type?: 'confirm_prompt' | 'success_overlay';
   title: string;
   message: string;
-  details?: { label: string; value: string | number }[];
+  details?: { label: string; value: string | number; copyable?: boolean }[];
   confirmText?: string;
   cancelText?: string;
   badgeTag?: string;
@@ -41,6 +43,14 @@ export const ActionConfirmationModal: React.FC<ActionConfirmationModalProps> = (
   onConfirm,
   onClose
 }) => {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = (text: string, key: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
   if (!isOpen) return null;
 
   const renderIcon = () => {
@@ -116,17 +126,52 @@ export const ActionConfirmationModal: React.FC<ActionConfirmationModalProps> = (
           {/* Details Card if provided */}
           {details.length > 0 && (
             <div className="w-full mt-4 p-3.5 bg-[#0F0D21]/90 rounded-2xl border border-[#29252A] space-y-2 text-left max-h-64 overflow-y-auto custom-scrollbar">
-              {details.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between text-xs py-1.5 border-b border-[#29252A]/30 last:border-b-0 gap-2"
-                >
-                  <span className="text-[#B0ACB0] font-semibold flex-shrink-0">{item.label}</span>
-                  <span className="font-bold text-[#C9A34E] truncate text-right max-w-[220px]">
-                    {item.value}
-                  </span>
-                </div>
-              ))}
+              {details.map((item, idx) => {
+                const isMatchId = item.label.toLowerCase().includes('match id');
+                const isCopyable = item.copyable || isMatchId;
+                const isCopied = copiedKey === `detail-${idx}`;
+                return (
+                  <div
+                    key={idx}
+                    className={`flex items-center justify-between text-xs py-1.5 border-b border-[#29252A]/30 last:border-b-0 gap-2 ${
+                      isMatchId ? 'bg-amber-500/10 px-2 py-2 rounded-lg border border-amber-500/20 my-1' : ''
+                    }`}
+                  >
+                    <span className="text-[#B0ACB0] font-semibold flex-shrink-0">{item.label}</span>
+                    <div className="flex items-center gap-1.5 justify-end">
+                      <span className={`font-bold truncate text-right max-w-[200px] ${
+                        isMatchId ? 'text-amber-400 font-mono tracking-wider' : 'text-[#C9A34E]'
+                      }`}>
+                        {item.value}
+                      </span>
+                      {isCopyable && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(String(item.value), `detail-${idx}`)}
+                          className={`p-1 rounded transition flex items-center gap-1 text-[10px] font-bold ${
+                            isCopied
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10'
+                          }`}
+                          title="Copy to clipboard"
+                        >
+                          {isCopied ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              <span>Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 

@@ -83,10 +83,10 @@ export const Header: React.FC<HeaderProps> = ({
       case 'tournaments': return 'Tournaments';
       case 'result-requests': return 'Result Requests Verification';
       case 'wallet': return 'Wallet & Payments';
-      case 'banners': return 'Match Thumbnails';
       case 'reports': return 'Analytics & Reports';
       case 'support-management': return 'Support Management';
       case 'staff': return 'Staff Management';
+      case 'staff-tasks': return 'Staff Daily Tasks';
       case 'settings': return 'System Settings';
       default: return 'WinX7 Admin';
     }

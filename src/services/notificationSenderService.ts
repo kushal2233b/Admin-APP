@@ -1,3 +1,5 @@
+import { supabase } from './supabase';
+
 /**
  * WINX7 Notification Sender Client Service
  * 
@@ -7,6 +9,17 @@
 
 // In-memory duplicate prevention set on client
 const sentEventIds = new Set<string>();
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) {
+      headers['Authorization'] = `Bearer ${data.session.access_token}`;
+    }
+  } catch {}
+  return headers;
+}
 
 export interface WithdrawalNotificationParams {
   userId: string;
@@ -93,9 +106,10 @@ export async function sendWithdrawalNotification(
   try {
     console.log(`[FCM Sender] Triggering withdrawal notification for user: ${userId}, tx: ${transactionId}`);
     
+    const headers = await getAuthHeaders();
     const response = await fetch('/api/notifications/send-withdrawal', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         userId,
         transactionId,
@@ -156,9 +170,10 @@ export async function sendMatchResultNotification(
   try {
     console.log(`[FCM Sender] Triggering match result notification for match: ${cleanMatchId}, users: ${userIds?.length || 'all participants'}`);
 
+    const headers = await getAuthHeaders();
     const response = await fetch('/api/notifications/send-match-result', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         matchId: cleanMatchId,
         userIds,
@@ -228,9 +243,10 @@ export async function sendCustomNotification(
   }
 
   try {
+    const headers = await getAuthHeaders();
     const response = await fetch('/api/notifications/send-custom', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         eventId: cleanEventId,
         targetType,
